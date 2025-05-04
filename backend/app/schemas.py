@@ -2,11 +2,11 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 class Address(BaseModel):
-    street: str
-    house_number: str
-    city: str
-    zip: int
-    country_code: str
+    street: str = Field(..., example=" Musterstraße")
+    house_number: str = Field(..., example="5")
+    zip: int = Field(..., example="80333")
+    city: str = Field(..., example="München")
+    country_code: str = Field(..., example="DE")
 
 class WebWunderConnectionTypes(str, Enum):
     DSL = 'DSL'
@@ -15,16 +15,25 @@ class WebWunderConnectionTypes(str, Enum):
     MOBILE = 'MOBILE' 
     
 class WebWunderRequestData(BaseModel):
-    installation: bool
-    connection_type: WebWunderConnectionTypes
+    installation: bool = Field(..., example=True)
+    connection_type: WebWunderConnectionTypes = Field(..., example=WebWunderConnectionTypes.DSL)
     address: Address
     
-class WebWunderHeaders(BaseModel):
+class ApiRequestHeaders(BaseModel):
     content_type: str = Field('text/xml; charset=utf-8', alias='Content-Type')
     x_api_key: str = Field(..., alias='X-Api-Key')
 
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True
+        
+class ByteMeQueryParams(BaseModel):
+    street: str = Field(..., example="Musterstraße")
+    house_number: str = Field(..., example="5", alias="houseNumber")
+    city: str = Field(..., example="München")
+    plz: int = Field(..., example=80333)
+    
+    class Config:
+        validate_by_name = True
     
     
 

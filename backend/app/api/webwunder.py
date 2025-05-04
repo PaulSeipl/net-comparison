@@ -1,20 +1,22 @@
-from base import BaseProvider
-from ..schemas import (
+from app.api.base import BaseProvider
+from app.schemas import (
     ProviderEnum,
     WebWunderRequestData,
     WebWunderConnectionTypes,
-    WebWunderHeaders,
+    ApiRequestHeaders,
 )
-from ..config import get_settings
+from app.config import get_settings
 from typing import Dict, List, Any, Optional
 import requests
 import xml.etree.ElementTree as ET
+import logging
 
 
 class WebWunder(BaseProvider):
     def __init__(self, db):
-        super().__init__(db)
+        super().__init__()
         self.name = ProviderEnum.WEBWUNDER.value
+        self.logger = logging.Logger(self.name)
 
     def provider_name(self) -> str:
         return self.name
@@ -25,15 +27,34 @@ class WebWunder(BaseProvider):
         settings = get_settings()
         payload = self.create_soap_payload(request_data)
 
-        headers = WebWunderHeaders(x_api_key=settings.WEBWUNDER_API_KEY).model_dump(by_alias=True)
-
-        response = requests.post(
-            settings.WEBWUNDER_BASE_URL,
-            data=payload,
-            headers=headers,
-        )
+        headers = ApiRequestHeaders(x_api_key=settings.WEBWUNDER_API_KEY).model_dump(by_alias=True)
+        print(headers)
+        try:
+            response = requests.post(
+                settings.WEBWUNDER_BASE_URL,
+                data=payload,
+                headers=headers,
+            )
+        except Exception as e:
+            self.logger(e)
         
         print(response)
+        
+        if response.status_code == 200:
+            pass
+        elif response.status_code == 500:
+            pass
+        
+        return self.normalize_offer(response.text)
+    
+
+    def normalize_offer(self, raw_offer: str) -> List[Dict[str, Any]]:
+        """
+        Normalize the provider-specific offer format into a common format.
+        """
+        products = self.parse_xml_response(raw_offer)
+        
+        return products
         
 
     @staticmethod
@@ -61,8 +82,9 @@ class WebWunder(BaseProvider):
                             </soapenv:Envelope>"""
                             
                             
-    def parse_xml_response(response: str) -> dict:
+    def parse_xml_response(self, response: str) -> List[Dict]:
         # Parse the XML
+        print(response)
         root = ET.fromstring(response)
 
         # Define namespaces
@@ -88,6 +110,4 @@ class WebWunder(BaseProvider):
             }
             product_list.append(product_data)
 
-        # Print extracted data
-        for p in product_list:
-            print(p)
+        return product_list

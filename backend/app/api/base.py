@@ -1,16 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-from ..schemas import Address
+from app.schemas import Address
 
 class BaseProvider(ABC):
     # Make circuit_breaker a class attribute so it can be used as a decorator
     #circuit_breaker = circuit_breaker
     
-    def __init__(self, db):
-        self.db = db
+    def __init__(self):
+        # self.db = db
         #self.cache = CacheService(db)
         #self.circuit_breaker = CircuitBreaker(self.provider_name, db)
+        pass
     
     @property
     @abstractmethod
