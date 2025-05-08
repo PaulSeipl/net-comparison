@@ -1,10 +1,11 @@
-from app.api.base import BaseProvider
 from app.schemas import (
     ProviderEnum,
-    WebWunderRequestData,
+    NetworkRequestData,
     ByteMeQueryParams,
     ApiRequestHeaders,
+    BaseProvider
 )
+from pydantic import PrivateAttr
 from app.config import get_settings
 from typing import Dict, List, Any
 import requests
@@ -13,16 +14,18 @@ import csv
 
 
 class ByteMe(BaseProvider):
-    def __init__(self, db):
-        super().__init__()
-        self.name = ProviderEnum.BYTEME.value
-        self.logger = logging.Logger(self.name)
+    name: str = ProviderEnum.BYTEME.value
+    _logger: logging.Logger = PrivateAttr()
+    
+    def __init__(self, logger: logging.Logger, **data):
+        super().__init__(**data)
+        self._logger = logger
 
     def provider_name(self) -> str:
         return self.name
 
     async def get_offers(
-        self, request_data: WebWunderRequestData
+        self, request_data: NetworkRequestData
     ) -> List[Dict[str, Any]]:
         settings = get_settings()
 
@@ -47,8 +50,7 @@ class ByteMe(BaseProvider):
                 params=query_params,  # Add query parameters here
             )
         except Exception as e:
-            self.logger.info(e)
-            print(e)
+            self._logger.exception("Error while making request to ByteMe API", exc_info=e)
 
         print(response)
 

@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     WEBWUNDER_BASE_URL: str
     BYTEME_API_KEY: str
     BYTEME_BASE_URL: str
+    PINGPERFECT_URL: str
+    PINGPERFECT_CLIENT_ID: str
+    PINGPERFECT_SIGNATURE_SECRET: str
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
     
 

@@ -1,28 +1,30 @@
-from app.api.base import BaseProvider
+from pydantic import PrivateAttr
 from app.schemas import (
     ProviderEnum,
-    WebWunderRequestData,
-    WebWunderConnectionTypes,
+    NetworkRequestData,
     ApiRequestHeaders,
+    BaseProvider
 )
 from app.config import get_settings
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import requests
 import xml.etree.ElementTree as ET
 import logging
 
 
 class WebWunder(BaseProvider):
-    def __init__(self, db):
-        super().__init__()
-        self.name = ProviderEnum.WEBWUNDER.value
-        self.logger = logging.Logger(self.name)
+    name: str = ProviderEnum.WEBWUNDER.value
+    _logger: logging.Logger = PrivateAttr()
+    
+    def __init__(self, logger: logging.Logger, **data):
+        super().__init__(**data)
+        self._logger = logger
 
     def provider_name(self) -> str:
         return self.name
 
     async def get_offers(
-        self, request_data: WebWunderRequestData
+        self, request_data: NetworkRequestData
     ) -> List[Dict[str, Any]]:
         settings = get_settings()
         payload = self.create_soap_payload(request_data)
@@ -36,7 +38,7 @@ class WebWunder(BaseProvider):
                 headers=headers,
             )
         except Exception as e:
-            self.logger(e)
+            self._logger.exception("Error while making request to WebWunder API", exc_info=e)
         
         print(response)
         
@@ -58,7 +60,7 @@ class WebWunder(BaseProvider):
         
 
     @staticmethod
-    def create_soap_payload(request_data: WebWunderRequestData) -> str:
+    def create_soap_payload(request_data: NetworkRequestData) -> str:
         address = request_data.address
         return f"""<?xml version="1.0" encoding="UTF-8"?>
                             <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -68,7 +70,7 @@ class WebWunder(BaseProvider):
                                     <gs:legacyGetInternetOffers>
                                         <gs:input>
                                             <gs:installation>{request_data.installation}</gs:installation>
-                                            <gs:connectionEnum>{request_data.connection_type.value}</gs:connectionEnum>
+                                            <gs:connectionEnum>{request_data.connection_type}</gs:connectionEnum>
                                             <gs:address>
                                                 <gs:street>{address.street}</gs:street>
                                                 <gs:houseNumber>{address.house_number}</gs:houseNumber>
