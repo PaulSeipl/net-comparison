@@ -94,6 +94,28 @@ class PingPerfectResponseData(BaseModel):
 
     class Config:
         validate_by_name = True
+        
+        
+class VerbynDichRequestData(BaseModel):
+    body: str = Field(..., description="Serialized address string: 'street;houseNumber;zip;city'")
+
+    @classmethod
+    def from_address(cls, address: Address) -> 'VerbynDichRequestData':
+        """
+        Creates a VerbynDichRequestData instance from an Address object.
+        The body will contain the address formatted as required by VerbynDich.
+        """
+        # Formatting logic moved here
+        formatted_address = f"{address.street};{address.house_number};{address.city};{address.zip}"
+        return cls(body=formatted_address)
+    
+
+class VerbynDichQueryParams(BaseModel):
+    api_key: str = Field(..., alias="apiKey")
+    page: int = Field(0)
+    
+    class Config:
+        validate_by_name = True
 
 
 class ProviderEnum(str, Enum):

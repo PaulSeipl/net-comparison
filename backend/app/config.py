@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     PINGPERFECT_URL: str
     PINGPERFECT_CLIENT_ID: str
     PINGPERFECT_SIGNATURE_SECRET: str
+    VERBYNDICH_URL: str
+    VERBYNDICH_API_KEY: str
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
     
 

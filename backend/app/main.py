@@ -7,11 +7,14 @@ from app.schemas import (
     NetworkRequestData,
     BaseProvider
 )
-from app.dependencies.providers import get_all_providers, get_provider, make_provider_getter
+from app.dependencies.providers import get_all_providers, make_provider_getter
 import asyncio
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
-
 # logfire.configure()
 # logfire.instrument_fastapi(app, capture_headers=True)
 
@@ -73,6 +76,17 @@ async def get_offers(
 async def get_offers(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.PINGPERFECT)),
+):
+    offers = await provider.get_offers(request_data=request_data)
+
+    print(offers)
+    return offers
+
+
+@app.post("/providers/offers/verbynDich", response_model=List[Dict[str, Any]])
+async def get_offers(
+    request_data: NetworkRequestData,
+    provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.VERBYNDICH)),
 ):
     offers = await provider.get_offers(request_data=request_data)
 
