@@ -50,8 +50,8 @@ async def get_offers(
     return offers
 
 
-@app.post("/providers/offers/byteme", response_model=List[Dict[str, Any]])
-async def get_offers(
+@app.post("/providers/offers/byteMe", response_model=List[Dict[str, Any]])
+async def get_offers_byte_me(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.BYTEME)),
 ):
@@ -61,8 +61,8 @@ async def get_offers(
     return offers
 
 
-@app.post("/providers/offers/webwunder", response_model=List[Dict[str, Any]])
-async def get_offers(
+@app.post("/providers/offers/webWunder", response_model=List[Dict[str, Any]])
+async def get_offers_web_wunder(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.WEBWUNDER)),
 ):
@@ -72,8 +72,8 @@ async def get_offers(
     return offers
 
 
-@app.post("/providers/offers/pingperfect", response_model=List[Dict[str, Any]])
-async def get_offers(
+@app.post("/providers/offers/pingPerfect", response_model=List[Dict[str, Any]])
+async def get_offers_ping_perfect(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.PINGPERFECT)),
 ):
@@ -84,9 +84,20 @@ async def get_offers(
 
 
 @app.post("/providers/offers/verbynDich", response_model=List[Dict[str, Any]])
-async def get_offers(
+async def get_offers_verbyn_dich(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.VERBYNDICH)),
+):
+    offers = await provider.get_offers(request_data=request_data)
+
+    print(offers)
+    return offers
+
+
+@app.post("/providers/offers/servusSpeed", response_model=List[Dict[str, Any]])
+async def get_offers_servus_speed(
+    request_data: NetworkRequestData,
+    provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.SERVUSSPEED)),
 ):
     offers = await provider.get_offers(request_data=request_data)
 

@@ -11,8 +11,13 @@ class Settings(BaseSettings):
     PINGPERFECT_SIGNATURE_SECRET: str
     VERBYNDICH_URL: str
     VERBYNDICH_API_KEY: str
+    SERVUSSPEED_BASE_URL: str
+    SERVUSSPEED_PRODUCTS_ENDPOINT: str
+    SERVUSSPEED_GET_PRODUCT_ENDPOINT: str
+    SERVUSSPEED_USERNAME: str
+    SERVUSSPEED_PASSWORD: str
+
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
-    
 
 @lru_cache()
 def get_settings() -> Settings:
