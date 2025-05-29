@@ -31,7 +31,7 @@ class PingPerfect(BaseProvider):
         self._logger = logger
 
     @property
-    def provider_name(self) -> str:
+    def name(self) -> str:
         return self.name
         
     async def get_offers(

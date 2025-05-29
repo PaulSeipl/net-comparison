@@ -1,11 +1,91 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional, Literal
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, Dict, List, Literal
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from abc import ABC, abstractmethod
 
 
+class BaseModel(BaseModel):
+    """
+    Base model for all schemas.
+    """
+    model_config = ConfigDict(
+        validate_by_name=True,
+        json_encoders={
+            str: lambda v: v if v else None,  # Handle empty strings
+        },
+        from_attributes=True
+    )
+    
+class ProviderEnum(str, Enum):
+    WEBWUNDER = "WebWunder"
+    BYTEME = "ByteMe"
+    PINGPERFECT = "Ping Perfect"
+    VERBYNDICH = "VerbynDich"
+    SERVUSSPEED = "Servus Speed"
+    
+class ConnectionTypeEnum(str, Enum):
+    DSL = "DSL"
+    CABLE = "Cable"
+    FIBER = "Fiber"
+    MOBILE = "Mobile"
+
+class NormalizedOffer(BaseModel):
+    # Core Identification
+    provider: ProviderEnum
+    offer_id: str # self generate if not available
+    name: str
+    
+    # Technical Details
+    speed: int
+    connection_type: ConnectionTypeEnum
+    
+    # Pricing Information (all in cents)
+    monthly_cost: int
+    monthly_cost_with_discount: int | None = None
+    monthly_cost_after_promotion: int | None = None
+    setup_fee: int | None = None
+    installation_service: bool = False
+    
+    # Contract Terms
+    contract_duration: int  # in months
+    
+    # Age & Eligibility Restrictions
+    max_age: int | None = None
+    
+    # Additional Services & Features
+    tv_service: str | None = None
+    max_discount_amount: int | None = None  # Discount in cents
+    discount_percentage: float | None = None  # Percentage discount
+    promotion_length: int | None = None  # Length of promotion in months
+    
+    # Metadata
+    fetched_at: str  # ISO timestamp
+    
+    @field_validator('provider')
+    @classmethod
+    def validate_provider(cls, v):
+        if isinstance(v, str):
+            # Convert string to enum if needed
+            return ProviderEnum(v)
+        return v
+    
+    @field_validator('connection_type')
+    @classmethod
+    def validate_connection_type(cls, v):
+        if isinstance(v, str):
+            # Convert string to enum if needed
+            return ConnectionTypeEnum(v)
+        return v
+
+    @property
+    def provider_name(self) -> str:
+        """Get the string value of the provider enum"""
+        return self.provider.value
+    
+
+
 class Address(BaseModel):
-    street: str = Field(..., examples=[" Musterstraße"])
+    street: str = Field(..., examples=["Musterstraße"])
     house_number: str = Field(..., examples=["5"])
     zip: int = Field(..., examples=["80333"], ge=10000, le=99999)
     city: str = Field(..., examples=["München"])
@@ -30,24 +110,27 @@ class ApiRequestHeaders(BaseModel):
     content_type: str = Field("text/xml; charset=utf-8", alias="Content-Type")
     x_api_key: str = Field(..., alias="X-Api-Key")
 
-    class Config:
-        validate_by_name = True
-
 
 class WebWunderProduct(BaseModel):
     product_id: str = Field(..., alias="productId")
     provider_name: str = Field(..., alias="providerName")
-    speed: str = Field(..., alias="speed")
-    monthly_cost_in_cent: str = Field(..., alias="monthlyCostInCent")
-    monthly_cost_in_cent_from_25th_month: str = Field(
+    speed: int
+    monthly_cost_in_cent: int = Field(..., alias="monthlyCostInCent")
+    monthly_cost_in_cent_from_25th_month: int = Field(
         ..., alias="monthlyCostInCentFrom25thMonth"
     )
-    contract_duration_in_months: str = Field(
+    contract_duration_in_months: int = Field(
         ..., alias="contractDurationInMonths"
     )
-    connection_type: str = Field(
-        ..., alias="connectionType"
-    )
+    connection_type: str = Field(..., alias="connectionType")
+    
+    # Percentage voucher fields
+    voucher_percentage: int | None = Field(None, alias="voucherPercentage")
+    max_discount_in_cent: int | None = Field(None, alias="maxDiscountInCent")
+    
+    # Absolute voucher fields
+    discount_in_cent: int | None = Field(None, alias="discountInCent")
+    min_order_value_in_cent: int | None = Field(None, alias="minOrderValueInCent")
 
     # Convert string fields to int
     @field_validator(
@@ -55,19 +138,14 @@ class WebWunderProduct(BaseModel):
         "monthly_cost_in_cent",
         "monthly_cost_in_cent_from_25th_month",
         "contract_duration_in_months",
+        "voucher_percentage",
+        "max_discount_in_cent",
+        "discount_in_cent",
+        "min_order_value_in_cent",
     )
     @classmethod
-    def parse_int(cls, value: str) -> int:
-        return int(value) if value else 0
-
-    class Config:
-        validate_by_name = True
-        json_encoders = {
-            str: lambda v: v if v else None,  # Handle empty strings
-        }
-    
-    class Config:
-        validate_by_name = True
+    def parse_int(cls, value: str | None) -> int:
+        return int(value) if value and value.strip() else 0
 
 
 class ByteMeQueryParams(BaseModel):
@@ -75,9 +153,6 @@ class ByteMeQueryParams(BaseModel):
     house_number: str = Field(..., examples=["5"], alias="houseNumber")
     city: str = Field(..., examples=["München"])
     plz: int = Field(..., examples=[80333])
-
-    class Config:
-        validate_by_name = True
 
 
 class ByteMeProduct(BaseModel):
@@ -109,21 +184,12 @@ class ByteMeProduct(BaseModel):
     def parse_int(cls, value: str) -> int:
         return int(value) if value else 0
 
-    class Config:
-        validate_by_name = True
-        json_encoders = {
-            str: lambda v: v if v else None,  # Handle empty strings
-        }
-
 
 class PingPerfectHeaders(BaseModel):
     x_client_id: str = Field(..., alias="X-Client-Id")
     x_signature: str = Field(..., alias="X-Signature")
     x_timestamp: str = Field(..., alias="X-Timestamp")
     content_type: str = Field("application/json", alias="Content-Type")
-
-    class Config:
-        validate_by_name = True
 
 
 class PingPerfectRequestData(BaseModel):
@@ -133,8 +199,6 @@ class PingPerfectRequestData(BaseModel):
     street: str = Field(..., examples=["Musterstraße"])
     wants_fiber: bool = Field(False, alias="wantsFiber")
 
-    class Config:
-        validate_by_name = True
 
 
 class PingPerfectProductInfo(BaseModel):
@@ -144,19 +208,15 @@ class PingPerfectProductInfo(BaseModel):
         ..., examples=["DSL"]
     )
     tv: str = Field(..., examples=["PING TV"])
-    limit_from: Optional[str] = Field(None, alias="limitFrom")
-    max_age: Optional[str] = Field(None, alias="maxAge")
+    limit_from: str | None = Field(None, alias="limitFrom")
+    max_age: str | None = Field(None, alias="maxAge")
 
-    class Config:
-        validate_by_name = True
 
 
 class PingPerfectPricingDetails(BaseModel):
     monthly_cost_in_cent: int = Field(..., alias="monthlyCostInCent")
     installation_service: str = Field(..., examples=["no"], alias="installationService")
 
-    class Config:
-        validate_by_name = True
 
 
 class PingPerfectResponseData(BaseModel):
@@ -164,8 +224,6 @@ class PingPerfectResponseData(BaseModel):
     product_info: PingPerfectProductInfo = Field(..., alias="productInfo")
     pricing_details: PingPerfectPricingDetails = Field(..., alias="pricingDetails")
 
-    class Config:
-        validate_by_name = True
 
 
 class VerbynDichRequestData(BaseModel):
@@ -189,9 +247,6 @@ class VerbynDichRequestData(BaseModel):
 class VerbynDichQueryParams(BaseModel):
     api_key: str = Field(..., alias="apiKey")
     page: int = Field(0)
-
-    class Config:
-        validate_by_name = True
         
 
 
@@ -202,9 +257,6 @@ class ServusSpeedRequestAddress(BaseModel):
     zip: int = Field(..., examples=[80333], alias="postleitzahl")
     city: str = Field(..., examples=["München"], alias="stadt")
     country_code: str = Field(..., examples=["DE"], alias="land")
-
-    class Config:
-        validate_by_name = True
 
 
 class ServusSpeedRequestData(BaseModel):
@@ -217,15 +269,9 @@ class ServusSpeedHeaders(BaseModel):
     accept_encoding: str = Field("gzip, deflate, br", alias="Accept-Encoding")
     connection: str = Field("keep-alive", alias="Connection")
 
-    class Config:
-        validate_by_name = True
-
 
 class ServusSpeedAvailableProducts(BaseModel):
     available_products: List[str] = Field(..., alias="availableProducts")
-
-    class Config:
-        validate_by_name = True
 
 
 class ServusSpeedProductInfo(BaseModel):
@@ -234,20 +280,14 @@ class ServusSpeedProductInfo(BaseModel):
     connection_type: Literal["DSL", "Cable", "Fiber"] = Field(
         ..., examples=["DSL"], alias="connectionType"
     )
-    tv: Optional[str] = Field(..., examples=["PING TV"])
-    limit_from: Optional[int] = Field(None, alias="limitFrom")
-    max_age: Optional[int] = Field(None, alias="maxAge")
-
-    class Config:
-        validate_by_name = True
+    tv: str | None = Field(..., examples=["PING TV"])
+    limit_from: int | None = Field(None, alias="limitFrom")
+    max_age: int | None = Field(None, alias="maxAge")
 
 
 class ServusSpeedPricingDetails(BaseModel):
     monthly_cost_in_cent: int = Field(..., alias="monthlyCostInCent")
     installation_service: bool = Field(..., alias="installationService")
-
-    class Config:
-        validate_by_name = True
 
 
 class ServusSpeedProduct(BaseModel):
@@ -257,27 +297,16 @@ class ServusSpeedProduct(BaseModel):
     discount: int = Field(..., description="Discount in cents")
 
 
-class ProviderEnum(str, Enum):
-    WEBWUNDER = "WebWunder"
-    BYTEME = "ByteMe"
-    PINGPERFECT = "Ping Perfect"
-    VERBYNDICH = "VerbynDich"
-    SERVUSSPEED = "Servus Speed"
-
-
 class BaseProvider(BaseModel, ABC):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     # Make circuit_breaker a class attribute so it can be used as a decorator
     # circuit_breaker = circuit_breaker
     #    db: str
     name: str
 
-    class Config:
-        arbitrary_types_allowed = True
-        from_attributes = True
-
     @property
     @abstractmethod
-    def provider_name(self) -> str:
+    def name(self) -> str:
         pass
 
     @abstractmethod
