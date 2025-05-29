@@ -1,5 +1,6 @@
 from pydantic import PrivateAttr
 from app.schemas import (
+    NormalizedOffer,
     ProviderEnum,
     NetworkRequestData,
     ApiRequestHeaders,
@@ -11,6 +12,7 @@ from typing import Dict, List, Any
 import aiohttp
 import xml.etree.ElementTree as ET
 import logging
+from datetime import datetime, timedelta, timezone
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 
@@ -28,7 +30,7 @@ class WebWunder(BaseProvider):
         self._logger = logger
 
     @property
-    def provider_name(self) -> str:
+    def name(self) -> str:
         return self.name
 
     async def get_offers(
@@ -173,7 +175,6 @@ class WebWunder(BaseProvider):
                             
     def _parse_xml_response(self, response: str) -> List[WebWunderProduct]:
         # Parse the XML
-        print(response)
         root = ET.fromstring(response)
 
         # Define namespaces
@@ -187,28 +188,96 @@ class WebWunder(BaseProvider):
 
         # Extract data
         product_list = []
-        for product in products:
+        for product in products:            # Extract voucher information - search directly for fields, None if not found
+            percentage_elem = product.find('.//ns2:percentage', namespaces)
+            discount_elem = product.find('.//ns2:discountInCent', namespaces)
+            max_discount_elem = product.find('.//ns2:maxDiscountInCent', namespaces)
+            min_order_elem = product.find('.//ns2:minOrderValueInCent', namespaces)
+            
+            # Extract values, handling None cases
+            voucher_percentage = int(percentage_elem.text) if percentage_elem is not None else None
+            discount_in_cent = int(discount_elem.text) if discount_elem is not None else None
+            voucher_max_discount = int(max_discount_elem.text) if max_discount_elem is not None else None
+            min_order_value = int(min_order_elem.text) if min_order_elem is not None else None
+
             product_data = {
                 'product_id': product.find('ns2:productId', namespaces).text,
                 'provider_name': product.find('ns2:providerName', namespaces).text,
-                'speed': product.find('.//ns2:speed', namespaces).text,
-                'monthly_cost_in_cent': product.find('.//ns2:monthlyCostInCent', namespaces).text,
-                'monthly_cost_in_cent_from_25th_month': product.find('.//ns2:monthlyCostInCentFrom25thMonth', namespaces).text,
-                'contract_duration_in_months': product.find('.//ns2:contractDurationInMonths', namespaces).text,
-                'connection_type': product.find('.//ns2:connectionType', namespaces).text
+                'speed': int(product.find('.//ns2:speed', namespaces).text),
+                'monthly_cost_in_cent': int(product.find('.//ns2:monthlyCostInCent', namespaces).text),
+                'monthly_cost_in_cent_from_25th_month': int(product.find('.//ns2:monthlyCostInCentFrom25thMonth', namespaces).text),
+                'contract_duration_in_months': int(product.find('.//ns2:contractDurationInMonths', namespaces).text),
+                'connection_type': product.find('.//ns2:connectionType', namespaces).text,
+                'voucher_percentage': voucher_percentage,
+                'max_discount_in_cent': voucher_max_discount,
+                'discount_in_cent': discount_in_cent,
+                'min_order_value_in_cent': min_order_value
             }
             product_list.append(WebWunderProduct(**product_data))
 
         return product_list
-    
-    def normalize_offer(self, raw_offer: WebWunderProduct) -> Dict[str, Any]:
+
+    def normalize_offer(self, raw_offer: WebWunderProduct) -> NormalizedOffer:
         """
         Normalize the provider-specific offer format into a common format.
         """
-        # TODO: Implement the normalization logic.
-        # For now, just returning a placeholder
-        self._logger.debug(f"Normalizing raw offer: {raw_offer}...")
         if not raw_offer:
             return {}
-        return raw_offer.model_dump()
-
+        
+        raw_offer_dict = raw_offer.model_dump()
+        
+        base_monthly_cost = raw_offer_dict['monthly_cost_in_cent']
+        contract_duration = raw_offer_dict['contract_duration_in_months']
+        
+        # Calculate effective pricing based on voucher type
+        effective_monthly_cost = base_monthly_cost
+        monthly_savings = 0
+        total_savings_during_contract = 0
+        special_features = {}
+        
+        # Handle percentage voucher
+        if raw_offer_dict.get('voucher_percentage'):
+            voucher_percentage = raw_offer_dict['voucher_percentage']
+            monthly_discount = int(base_monthly_cost * (voucher_percentage / 100))
+            effective_monthly_cost = base_monthly_cost - monthly_discount
+            monthly_savings = monthly_discount
+            
+            # Calculate total savings during contract (capped by max discount)
+            max_discount = raw_offer_dict.get('max_discount_in_cent', 0)
+            total_savings_during_contract = min(monthly_discount * contract_duration, max_discount)
+            
+            special_features['voucher'] = f"{voucher_percentage}% discount for 24 months"
+            special_features['monthly_savings'] = f"€{monthly_discount/100:.2f}/month"
+        
+        # Handle absolute voucher (distributed over 24 months)
+        elif raw_offer_dict.get('discount_in_cent'):
+            absolute_discount = raw_offer_dict['discount_in_cent']
+            promotional_period = 24  # months
+            monthly_discount = int(absolute_discount / promotional_period)
+            
+            effective_monthly_cost = base_monthly_cost - monthly_discount
+            monthly_savings = monthly_discount
+            
+            # Total savings during the contract period
+            total_savings_during_contract = monthly_discount * contract_duration
+            
+            special_features['voucher'] = f"€{absolute_discount/100:.2f} discount over 24 months"
+            special_features['monthly_savings'] = f"€{monthly_discount/100:.2f}/month"
+            special_features['total_available_discount'] = f"€{absolute_discount/100:.2f}"
+        
+        return NormalizedOffer(
+            provider=ProviderEnum.WEBWUNDER,
+            offer_id=f"webwunder_{raw_offer_dict['product_id']}",
+            name=raw_offer_dict['provider_name'],
+            speed=raw_offer_dict['speed'],
+            connection_type=raw_offer_dict['connection_type'],
+            monthly_cost=effective_monthly_cost,  # €22.02 after discount
+            monthly_cost_after_promotion=raw_offer_dict.get('monthly_cost_in_cent_from_25th_month'),  # €24.53
+            contract_duration=contract_duration,
+            max_discount_amount=total_savings_during_contract,  # €54.12 over 12 months
+            discount_percentage=None,  # Not applicable for absolute discount
+            promotion_length=24,  # Promotional period length
+            special_features=special_features,
+            fetched_at=datetime.now().isoformat()
+        )
+        

@@ -1,7 +1,9 @@
 import aiohttp
 import asyncio
 import logging
-from typing import Dict, List, Any
+import re
+from datetime import datetime
+from typing import Dict, List, Any, Optional
 from pydantic import PrivateAttr
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -10,7 +12,8 @@ from app.schemas import (
     NetworkRequestData,
     VerbynDichRequestData,
     VerbynDichQueryParams,
-    BaseProvider
+    BaseProvider,
+    NormalizedOffer
 )
 from app.config import get_settings
 
@@ -209,11 +212,138 @@ class VerbynDich(BaseProvider):
     def normalize_offer(self, raw_offer: Dict[str, Any]) -> Dict[str, Any]:
         """
         Normalize the provider-specific offer format into a common format.
+        
+        Args:
+            raw_offer: Raw offer data from VerbynDich API
+            
+        Returns:
+            Normalized offer data matching NormalizedOffer schema
         """
-        # TODO: Implement the normalization logic.
-        # For now, just returning a placeholder
         self._logger.debug(f"Normalizing raw offer: {raw_offer}...")
-        if not raw_offer:
-            return {}
-        return raw_offer
+        if not raw_offer or not raw_offer.get('valid', False):
+            return None
+            
+        try:
+            # Extract basic information
+            product_name = raw_offer.get('product', '')
+            description = raw_offer.get('description', '')
+            if not product_name or not description:
+                self._logger.warning("Missing product name or description")
+                return None
+            
+            # Parse the description to extract offer details
+            parsed_data = self._parse_description(description)
+            
+            # Create normalized offer using NormalizedOffer schema
+            return NormalizedOffer(
+                provider=ProviderEnum.VERBYNDICH,
+                offer_id=self._generate_offer_id(product_name),
+                name=product_name,
+                speed=parsed_data['speed'],
+                monthly_cost=parsed_data['monthly_cost_in_cent'],
+                contract_duration=parsed_data['contract_duration'],
+                connection_type=parsed_data['connection_type'],
+                monthly_cost_after_promotion=parsed_data.get('price_after_promotion'),
+                setup_fee=parsed_data.get('setup_fee'),                special_features=parsed_data.get('special_features', {}),
+                fetched_at=datetime.utcnow().isoformat()
+            )
+            
+        except Exception as e:
+            self._logger.error(f"Error normalizing offer: {e}", exc_info=True)
+            return None
+    
+    def _parse_description(self, description: str) -> Dict[str, Any]:
+        """
+        Parse the German description text to extract offer details.
+        
+        Args:
+            description: German description text from VerbynDich
+            
+        Returns:
+            Dictionary with parsed offer details
+        """
+        parsed = {}
+        special_features = {}
+        
+        # Extract monthly cost: "Für nur 30€ im Monat"
+        cost_match = re.search(r'Für nur (\d+)€ im Monat', description)
+        if cost_match:
+            parsed['monthly_cost_in_cent'] = int(cost_match.group(1)) * 100  # Convert to cents
+        else:
+            self._logger.warning("Could not extract monthly cost from description")
+            parsed['monthly_cost_in_cent'] = 0
+                
+        # Extract connection type: "DSL-Verbindung", "Cable-Verbindung", "Fiber-Verbindung"       
+        connection_match = re.search(r'(DSL|Cable|Fiber)-Verbindung', description)
+        if connection_match:
+            parsed['connection_type'] = connection_match.group(1).upper()
+        else:
+            self._logger.warning("Could not extract connection type from description")
+            parsed['connection_type'] = 'DSL'  # Default fallback
+            
+        # Extract speed: "Geschwindigkeit von 25 Mbit/s"
+        speed_match = re.search(r'Geschwindigkeit von (\d+) Mbit/s', description)
+        if speed_match:
+            parsed['speed'] = int(speed_match.group(1))
+        else:
+            self._logger.warning("Could not extract speed from description")
+            parsed['speed'] = 0
+            
+        # Extract contract duration: "Mindestvertragslaufzeit 12 Monate"
+        contract_match = re.search(r'Mindestvertragslaufzeit (\d+) Monate', description)
+        if contract_match:
+            parsed['contract_duration'] = int(contract_match.group(1))
+        else:
+            self._logger.warning("Could not extract contract duration from description")
+            parsed['contract_duration'] = 12  # Default fallback
+            
+        # Extract price after promotion: "Ab dem 24. Monat beträgt der monatliche Preis 29€"
+        promo_price_match = re.search(r'Ab dem \d+\. Monat beträgt der monatliche Preis (\d+)€', description)
+        if promo_price_match:
+            parsed['price_after_promotion'] = int(promo_price_match.group(1)) * 100  # Convert to cents
+            
+        # Extract TV services: "Fernsehsender enthalten RobynTV+"
+        tv_match = re.search(r'Fernsehsender enthalten ([^.]+)', description)
+        if tv_match:
+            special_features["tv"] = f"{tv_match.group(1).strip()}"
+
+        # Extract data limit: "Ab 250GB pro Monat wird die Geschwindigkeit gedrosselt"
+        data_limit_match = re.search(r'Ab (\d+)GB pro Monat wird die Geschwindigkeit gedrosselt', description)
+        if data_limit_match:
+            special_features["data_limit"] = f"{data_limit_match.group(1)}GB/Monat"
+
+        # Extract age restriction: "nur für Personen unter 27 Jahren"
+        age_match = re.search(r'nur für Personen unter (\d+) Jahren', description)
+        if age_match:
+            special_features["age_restriction"] = f"unter {age_match.group(1)} Jahren"
+
+        # Extract discount information: "Rabatt von 12% auf Ihre monatliche Rechnung bis zum 24. Monat"
+        discount_match = re.search(r'Rabatt von (\d+)% auf Ihre monatliche Rechnung bis zum (\d+)\. Monat', description)
+        if discount_match:
+            special_features["discount"] = f"{discount_match.group(1)}% bis Monat {discount_match.group(2)}"
+
+        # Extract maximum discount: "Der maximale Rabatt beträgt 107€"
+        max_discount_match = re.search(r'Der maximale Rabatt beträgt (\d+)€', description)
+        if max_discount_match:
+            special_features["max_discount"] = f"{max_discount_match.group(1)}€"
+
+        # Add special features if any were found
+        if special_features:
+            parsed['special_features'] = special_features
+            
+        return parsed
+    
+    def _generate_offer_id(self, product_name: str) -> str:
+        """
+        Generate a unique offer ID from the product name.
+        
+        Args:
+            product_name: The product name from VerbynDich
+            
+        Returns:
+            A unique offer ID
+        """
+        # Remove spaces and special characters, convert to lowercase
+        clean_name = re.sub(r'[^a-zA-Z0-9]', '', product_name.lower())
+        return f"verbyndich_{clean_name}"
 
