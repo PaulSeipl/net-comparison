@@ -71,7 +71,7 @@ async def get_offers(
     return offers
 
 
-@api_v1_router.post("/providers/offers/byteMe", response_model=list[dict[str, Any]])
+@api_v1_router.post("/providers/offers/byteMe", response_model=list[NormalizedOffer])
 async def get_offers_byte_me(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.BYTEME)),

@@ -2,19 +2,23 @@ import asyncio
 from pydantic import PrivateAttr
 from app.schemas import (
     NormalizedOffer,
+    PriceDetails,
     ProviderEnum,
     NetworkRequestData,
-    ApiRequestHeaders,
+    WebWunderRequestHeaders,
     BaseProvider,
     WebWunderProduct,
     WebWunderFetchReturn,
 )
 from app.config import get_settings
-from typing import Dict, List, Any
+from app.api.webwunder_config import WebWunderConfig
+from app.utils.xml_parser import WebWunderXMLParser
+
+from app.utils.discount_calculator import DiscountCalculator
+from app.utils.connection_mapper import ConnectionTypeMapper
+from typing import List
 import aiohttp
-import xml.etree.ElementTree as ET
 import logging
-from math import floor
 from datetime import datetime
 from tenacity import (
     retry,
@@ -32,19 +36,14 @@ class WebWunder(BaseProvider):
 
     name: str = ProviderEnum.WEBWUNDER.value
     _logger: logging.Logger = PrivateAttr()
-    REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
-    PROMOTION_LENGTH: int = 24
-    CONNECTION_TYPES: list[str] = [
-        "DSL",
-        "CABLE",
-        "FIBER",
-        "MOBILE",
-    ]
-    CONNCURENCY_LMIT: int = 5  # Limit concurrent requests
+    _discount_calculator: DiscountCalculator = PrivateAttr()
 
     def __init__(self, logger: logging.Logger, **data):
         super().__init__(**data)
         self._logger = logger
+        self._discount_calculator = DiscountCalculator(
+            promotion_length=WebWunderConfig.PROMOTION_LENGTH
+        )
 
     @property
     def name(self) -> str:
@@ -55,103 +54,184 @@ class WebWunder(BaseProvider):
     ) -> List[NormalizedOffer]:
         """
         Fetch offers from the provider for the given address.
-        Returns a list of normalized offer data.
 
         Args:
             request_data: The network request data containing address information
 
         Returns:
-            A list of offer data dictionaries
+            A list of normalized offer data
         """
         self._logger.info(f"Fetching offers...")
         self._logger.debug(f"Request data: {request_data}")
 
-        # Prepare session and request parameters
-        settings = get_settings()
-        headers = ApiRequestHeaders(x_api_key=settings.WEBWUNDER_API_KEY).model_dump(
-            by_alias=True
-        )
-        
-        semaphore = asyncio.Semaphore(self.CONNCURENCY_LMIT)
+        try:
+            # Fetch raw offers from API
+            fetch_results = await self._fetch_all_offers(request_data)
+            # Process and normalize offers
+            normalized_offers = self._process_fetch_results(fetch_results)
+
+            self._logger.info(f"Successfully fetched {len(normalized_offers)} offers")
+            return normalized_offers
+
+        except Exception as e:
+            self._logger.exception("Failed to fetch WebWunder offers")
+            raise
+
+    async def _fetch_all_offers(
+        self, request_data: NetworkRequestData
+    ) -> List[WebWunderFetchReturn]:
+        """
+        Fetch offers for all connection types and installation service combinations.
+
+        Args:
+            request_data: Network request data
+
+        Returns:
+            List of fetch results
+        """
+        headers = self._create_api_headers()
+        semaphore = asyncio.Semaphore(WebWunderConfig.CONCURRENCY_LIMIT)
 
         async with aiohttp.ClientSession(headers=headers) as session:
-            # Get all products in a single request
-            tasks = []
-            for installation_service in [True, False]:
-                for connection_type in self.CONNECTION_TYPES:
-                    payload = self._create_soap_payload(
-                        request_data, connection_type, installation_service
-                    )
-                    tasks.append(
-                        self._fetch_products(
-                            session=session,
-                            payload=payload,
-                            installation_service=installation_service,
-                            connection_type=connection_type,
-                        )
-                    )
+            tasks = self._create_fetch_tasks(session, request_data, semaphore)
             results = await asyncio.gather(*tasks, return_exceptions=False)
 
-        # Parse the XML response and extract products
-        processed_products = []
-        for result in results:
-            if not result.response_text:
-                self._logger.warning(
-                    f"Empty response received for one of the connection types."
-                )
-                continue
-            
-            raw_offers = self._parse_xml_response(result.response_text)
-            if not raw_offers:
-                self._logger.warning(
-                    f"No products found in the response for installation_service {result.installation_service} and connection_type {result.connection_type}."
-                )
-                continue
+        return results
 
-            for raw_offer in raw_offers:
-                processed_products.append(
-                    self.normalize_offer(
-                        raw_offer,
-                        installation_service=result.installation_service,
-                    )
-                )
-                
+    def _create_api_headers(self) -> dict:
+        """Create API headers for requests."""
+        settings = get_settings()
+        return WebWunderRequestHeaders(x_api_key=settings.WEBWUNDER_API_KEY).model_dump(
+            by_alias=True
+        )
 
-        self._logger.info(f"Successfully fetched {len(processed_products)} offers")
-        return processed_products
-
-
-    async def _fetch_offer_with_rate_limit(
-        self, 
-        session: aiohttp.ClientSession, 
-        payload: str, 
-        installation_service: bool,
-        connection_type: str,
-        semaphore: asyncio.Semaphore
-    ) -> WebWunderFetchReturn:
+    def _create_fetch_tasks(
+        self,
+        session: aiohttp.ClientSession,
+        request_data: NetworkRequestData,
+        semaphore: asyncio.Semaphore,
+    ) -> List:
         """
-        Get an offer with rate limiting via semaphore.
-        
+        Create fetch tasks for all connection type and installation service combinations.
+
         Args:
-            session: The aiohttp ClientSession to use for requests
-            payload: The request payload
-            installation_service: Whether the installation service is required
-            connection_type: The connection type to use
+            session: HTTP session
+            request_data: Network request data
             semaphore: Semaphore to limit concurrent requests
 
         Returns:
-            A dictionary containing the offer data or an empty dict on failure
+            List of async tasks
         """
-        async with semaphore:
-            self._logger.debug(f"Semaphore acquired for installation_service {installation_service} and connection_type {connection_type}")
+        tasks = []
+        for installation_service in WebWunderConfig.INSTALLATION_SERVICE_OPTIONS:
+            for connection_type in WebWunderConfig.CONNECTION_TYPES:
+                payload = self._create_soap_payload(
+                    request_data, connection_type, installation_service
+                )
+                tasks.append(
+                    self._fetch_products_with_semaphore(
+                        session=session,
+                        payload=payload,
+                        installation_service=installation_service,
+                        connection_type=connection_type,
+                        semaphore=semaphore,
+                    )
+                )
+        return tasks
+
+    def _create_soap_payload(
+        self,
+        request_data: NetworkRequestData,
+        connection_type: str,
+        installation_service: bool,
+    ) -> str:
+        """
+        Create SOAP payload for WebWunder API request.
+
+        Args:
+            request_data: Network request data containing address information
+            connection_type: Type of connection (DSL, CABLE, FIBER, MOBILE)
+            installation_service: Whether installation service is requested
+
+        Returns:
+            SOAP XML payload as string
+        """
+        address = request_data.address
+        return f"""<?xml version="1.0" encoding="UTF-8"?>
+                    <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                                    xmlns:gs="http://webwunder.gendev7.check24.fun/offerservice">
+                        <soapenv:Header/>
+                        <soapenv:Body>
+                            <gs:legacyGetInternetOffers>
+                                <gs:input>
+                                    <gs:installation>{installation_service}</gs:installation>
+                                    <gs:connectionEnum>{connection_type}</gs:connectionEnum>
+                                    <gs:address>
+                                        <gs:street>{address.street}</gs:street>
+                                        <gs:houseNumber>{address.house_number}</gs:houseNumber>
+                                        <gs:city>{address.city}</gs:city>
+                                        <gs:plz>{address.zip}</gs:plz>
+                                        <gs:countryCode>{address.country_code}</gs:countryCode>
+                                    </gs:address>
+                                </gs:input>
+                            </gs:legacyGetInternetOffers>
+                        </soapenv:Body>
+                    </soapenv:Envelope>"""
+
+    def _process_fetch_results(
+        self, fetch_results: List[WebWunderFetchReturn]
+    ) -> List[NormalizedOffer]:
+        """
+        Process fetch results and convert to normalized offers.
+
+        Args:
+            fetch_results: List of fetch results from API
+
+        Returns:
+            List of normalized offers
+        """
+        normalized_offers = []
+
+        for result in fetch_results:
+            if not result.response_text:
+                self._logger.warning(
+                    f"Empty response for connection_type={result.connection_type}, "
+                    f"installation_service={result.installation_service}"
+                )
+                continue
+
             try:
-                return await self._fetch_offer(session, payload, installation_service, connection_type)
-            finally:
-                self._logger.debug(f"Semaphore released for installation_service {installation_service} and connection_type {connection_type}")
+                raw_offers = WebWunderXMLParser.parse_response(result.response_text)
+
+                if not raw_offers:
+                    self._logger.warning(
+                        f"No products found for connection_type={result.connection_type}, "
+                        f"installation_service={result.installation_service}"
+                    )
+                    continue
+
+                for raw_offer in raw_offers:
+                    normalized_offer = self.normalize_offer(
+                        raw_offer, installation_service=result.installation_service
+                    )
+                    normalized_offers.append(normalized_offer)
+
+            except Exception as e:
+                self._logger.error(
+                    f"Failed to process response for connection_type={result.connection_type}, "
+                    f"installation_service={result.installation_service}: {e}"
+                )
+                continue
+
+        return normalized_offers
 
     @retry(
-        stop=stop_after_attempt(10),
-        wait=wait_exponential(multiplier=1, min=2, max=60),
+        stop=stop_after_attempt(WebWunderConfig.MAX_RETRY_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=WebWunderConfig.RETRY_MULTIPLIER,
+            min=WebWunderConfig.RETRY_MIN_WAIT,
+            max=WebWunderConfig.RETRY_MAX_WAIT,
+        ),
         retry=retry_if_exception_type(aiohttp.ClientResponseError),
     )
     async def _fetch_products(
@@ -162,33 +242,42 @@ class WebWunder(BaseProvider):
         connection_type: str,
     ) -> WebWunderFetchReturn:
         """
-        Fetch products from the WebWunder provider.
-        Automatically retries on certain errors with exponential backoff.
+        Fetch products from the WebWunder provider with retry logic.
 
         Args:
             session: The aiohttp ClientSession to use for requests
             payload: The SOAP XML payload for the request
+            installation_service: Whether installation service is requested
+            connection_type: The connection type
 
         Returns:
-            The XML response as a string
+            WebWunderFetchReturn with response data
         """
         settings = get_settings()
 
         try:
-            self._logger.info(f"Fetching available products...")
+            self._logger.debug(
+                f"Fetching products for connection_type={connection_type}, "
+                f"installation_service={installation_service}"
+            )
+
             async with session.post(
                 settings.WEBWUNDER_BASE_URL,
                 data=payload,
-                timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
+                timeout=aiohttp.ClientTimeout(total=WebWunderConfig.REQUEST_TIMEOUT),
             ) as response:
-                self._logger.debug(f"Offers - Status: {response.status}")
+                self._logger.debug(f"Response status: {response.status}")
 
                 if response.status != 200:
-                    self._logger.error(f"Failed to fetch offers: {response.status}")
+                    self._logger.error(
+                        f"API request failed with status: {response.status}"
+                    )
                     response.raise_for_status()
 
                 response_text = await response.text()
-                self._logger.debug(f"Raw response text: {response_text[:200]}...")
+                self._logger.debug(
+                    f"Received response: {len(response_text)} characters"
+                )
 
                 return WebWunderFetchReturn(
                     installation_service=installation_service,
@@ -197,192 +286,102 @@ class WebWunder(BaseProvider):
                 )
 
         except aiohttp.ClientResponseError as e:
-            # Attempt to get response text for better error logging
-            response_text = "N/A"
-            if hasattr(e, "response") and e.response is not None:
-                try:
-                    response_text = await e.response.text()
-                except Exception:
-                    pass  # Ignore if can't read text
-
+            response_text = await self._get_error_response_text(e)
             self._logger.error(
-                f"HTTP error API: {e.status} {e.message}. "
-                f"Response: {response_text[:200]}...",
-                exc_info=False,
+                f"HTTP error {e.status}: {e.message}. Response: {response_text[:200]}..."
             )
             raise  # Let tenacity handle the retry
 
         except aiohttp.ClientError as e:
-            self._logger.exception(
-                f"AIOHTTP ClientError API while fetching offers",
-                exc_info=e,
-            )
-            # TODO custom exception with association to installation_service and connection_type
-            return WebWunderFetchReturn(
-                installation_service=installation_service,
-                connection_type=connection_type,
-                response_text="",
+            self._logger.exception(f"AIOHTTP ClientError: {e}")
+            return self._create_empty_fetch_return(
+                installation_service, connection_type
             )
 
         except Exception as e:
-            self._logger.exception(
-                f"Unexpected error while fetching offers",
-                exc_info=e,
-            )
-            return WebWunderFetchReturn(
-                installation_service=installation_service,
-                connection_type=connection_type,
-                response_text="",
+            self._logger.exception(f"Unexpected error: {e}")
+            return self._create_empty_fetch_return(
+                installation_service, connection_type
             )
 
-    @staticmethod
-    def _create_soap_payload(
-        request_data: NetworkRequestData, connection_type: str, installation_service: bool
-    ) -> str:
-        address = request_data.address
-        return f"""<?xml version="1.0" encoding="UTF-8"?>
-                            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
-                                            xmlns:gs="http://webwunder.gendev7.check24.fun/offerservice">
-                            <soapenv:Header/>
-                                <soapenv:Body>
-                                    <gs:legacyGetInternetOffers>
-                                        <gs:input>
-                                            <gs:installation>{installation_service}</gs:installation>
-                                            <gs:connectionEnum>{connection_type}</gs:connectionEnum>
-                                            <gs:address>
-                                                <gs:street>{address.street}</gs:street>
-                                                <gs:houseNumber>{address.house_number}</gs:houseNumber>
-                                                <gs:city>{address.city}</gs:city>
-                                                <gs:plz>{address.zip}</gs:plz>
-                                                <gs:countryCode>{address.country_code}</gs:countryCode>
-                                            </gs:address>
-                                        </gs:input>
-                                    </gs:legacyGetInternetOffers>
-                                </soapenv:Body>
-                            </soapenv:Envelope>"""
+    async def _get_error_response_text(self, error: aiohttp.ClientResponseError) -> str:
+        """
+        Safely extract response text from HTTP error.
 
-    def _parse_xml_response(self, response: str) -> List[WebWunderProduct]:
-        # Parse the XML
-        root = ET.fromstring(response)
+        Args:
+            error: The HTTP error
 
-        # Define namespaces
-        namespaces = {
-            "SOAP-ENV": "http://schemas.xmlsoap.org/soap/envelope/",
-            "ns2": "http://webwunder.gendev7.check24.fun/offerservice",
-        }
+        Returns:
+            Response text or "N/A" if unavailable
+        """
+        if hasattr(error, "response") and error.response is not None:
+            try:
+                return await error.response.text()
+            except Exception:
+                pass
+        return "N/A"
 
-        # Find all product entries
-        products = root.findall(".//ns2:products", namespaces)
+    def _create_empty_fetch_return(
+        self, installation_service: bool, connection_type: str
+    ) -> WebWunderFetchReturn:
+        """
+        Create an empty fetch return for error cases.
 
-        # Extract data
-        product_list = []
-        for (
-            product
-        ) in (
-            products
-        ):  # Extract voucher information - search directly for fields, None if not found
-            percentage_elem = product.find(".//ns2:percentage", namespaces)
-            discount_elem = product.find(".//ns2:discountInCent", namespaces)
-            max_discount_elem = product.find(".//ns2:maxDiscountInCent", namespaces)
-            min_order_elem = product.find(".//ns2:minOrderValueInCent", namespaces)
+        Args:
+            installation_service: Installation service flag
+            connection_type: Connection type
 
-            # Extract values, handling None cases
-            voucher_percentage = (
-                int(percentage_elem.text) if percentage_elem is not None else None
-            )
-            discount_in_cent = (
-                int(discount_elem.text) if discount_elem is not None else None
-            )
-            voucher_max_discount = (
-                int(max_discount_elem.text) if max_discount_elem is not None else None
-            )
-            min_order_value = (
-                int(min_order_elem.text) if min_order_elem is not None else None
-            )
-
-            product_data = {
-                "product_id": product.find("ns2:productId", namespaces).text,
-                "provider_name": product.find("ns2:providerName", namespaces).text,
-                "speed": int(product.find(".//ns2:speed", namespaces).text),
-                "monthly_cost_in_cent": int(
-                    product.find(".//ns2:monthlyCostInCent", namespaces).text
-                ),
-                "monthly_cost_in_cent_from_25th_month": int(
-                    product.find(
-                        ".//ns2:monthlyCostInCentFrom25thMonth", namespaces
-                    ).text
-                ),
-                "contract_duration_in_months": int(
-                    product.find(".//ns2:contractDurationInMonths", namespaces).text
-                ),
-                "connection_type": product.find(
-                    ".//ns2:connectionType", namespaces
-                ).text,
-                "voucher_percentage": voucher_percentage,
-                "max_discount_in_cent": voucher_max_discount,
-                "discount_in_cent": discount_in_cent,
-                "min_order_value_in_cent": min_order_value,
-            }
-            product_list.append(WebWunderProduct(**product_data))
-
-        return product_list
+        Returns:
+            Empty WebWunderFetchReturn
+        """
+        return WebWunderFetchReturn(
+            installation_service=installation_service,
+            connection_type=connection_type,
+            response_text="",
+        )
 
     def normalize_offer(
         self, raw_offer: WebWunderProduct, installation_service: bool
     ) -> NormalizedOffer:
         """
         Normalize the provider-specific offer format into a common format.
+
+        Args:
+            raw_offer: Raw offer data from WebWunder
+            installation_service: Whether installation service is included
+
+        Returns:
+            Normalized offer data
         """
         if not raw_offer:
-            return {}
+            raise ValueError("Raw offer cannot be empty")
 
         raw_offer_dict = raw_offer.model_dump()
-
         base_monthly_cost = raw_offer_dict["monthly_cost_in_cent"]
 
-        # Calculate effective pricing based on voucher type
-        monthly_discount = None
-        total_savings_during_promotional_period = None
-        monthly_cost_with_discount = None
-        discount_percentage = None
-        
-        connection_type_mapping = {
-                'CABLE': 'Cable',
-                'FIBER': 'Fiber', 
-                'MOBILE': 'Mobile',
-                'DSL': 'DSL'  # DSL stays the same
-        }
-        connection_type = connection_type_mapping.get(
-            raw_offer_dict["connection_type"], raw_offer_dict["connection_type"]
+        # Calculate discounts
+        discount_result = self._discount_calculator.calculate_discount(
+            base_monthly_cost=base_monthly_cost,
+            voucher_percentage=raw_offer_dict.get("voucher_percentage"),
+            max_discount_in_cent=raw_offer_dict.get("max_discount_in_cent"),
+            discount_in_cent=raw_offer_dict.get("discount_in_cent"),
         )
 
-        # Handle percentage voucher
-        if raw_offer_dict.get("voucher_percentage"):
-            # Calculate absolute discount based on percentage
-            voucher_percentage = raw_offer_dict["voucher_percentage"]
-            max_discount = raw_offer_dict.get(
-                "max_discount_in_cent", 10**10
-            )  # Default to a very high value if not specified
-            monthly_discount_temp = int(base_monthly_cost * (voucher_percentage / 100))
-            complete_discount = monthly_discount_temp * self.PROMOTION_LENGTH
+        # Map connection type to schema format
+        connection_type = ConnectionTypeMapper.map_connection_type(
+            raw_offer_dict["connection_type"]
+        )
 
-            # Cap the discount by max discount
-            absolute_discount = min(complete_discount, max_discount)
-
-            # Calculate total savings during promotional period
-            monthly_discount = absolute_discount / self.PROMOTION_LENGTH
-            monthly_cost_with_discount = base_monthly_cost - monthly_discount
-            total_savings_during_promotional_period = absolute_discount
-            discount_percentage = floor((monthly_discount / base_monthly_cost) * 100)
-
-        # Handle absolute voucher (distributed over 24 months)
-        elif raw_offer_dict.get("discount_in_cent"):
-            absolute_discount = raw_offer_dict["discount_in_cent"]
-            monthly_discount = int(absolute_discount / self.PROMOTION_LENGTH)
-
-            monthly_cost_with_discount = base_monthly_cost - monthly_discount
-            total_savings_during_promotional_period = absolute_discount
-            discount_percentage = floor((monthly_discount / base_monthly_cost) * 100)
+        price_details = PriceDetails(
+            monthly_cost=base_monthly_cost,
+            monthly_cost_with_discount=discount_result.monthly_cost_with_discount,
+            monthly_savings=discount_result.monthly_discount,
+            monthly_cost_after_promotion=raw_offer_dict.get(
+                "monthly_cost_in_cent_from_25th_month"
+            ),
+            total_savings=discount_result.total_savings,
+            discount_percentage=discount_result.discount_percentage,
+        )
 
         return NormalizedOffer(
             provider=ProviderEnum.WEBWUNDER,
@@ -390,16 +389,48 @@ class WebWunder(BaseProvider):
             name=raw_offer_dict["provider_name"],
             speed=raw_offer_dict["speed"],
             connection_type=connection_type,
-            monthly_cost=base_monthly_cost,
-            monthly_cost_with_discount=monthly_cost_with_discount,
-            monthly_cost_after_promotion=raw_offer_dict.get(
-                "monthly_cost_in_cent_from_25th_month"
-            ),
-            monthly_savings=monthly_discount,
-            total_savings=total_savings_during_promotional_period,
+            price_details=price_details,
             installation_service=installation_service,
             contract_duration=raw_offer_dict["contract_duration_in_months"],
-            discount_percentage=discount_percentage,  # Not applicable for absolute discount
-            promotion_length=self.PROMOTION_LENGTH,  # Promotional period length
+            promotion_length=WebWunderConfig.PROMOTION_LENGTH,
             fetched_at=datetime.now().isoformat(timespec="seconds"),
         )
+
+    async def _fetch_products_with_semaphore(
+        self,
+        session: aiohttp.ClientSession,
+        payload: str,
+        installation_service: bool,
+        connection_type: str,
+        semaphore: asyncio.Semaphore,
+    ) -> WebWunderFetchReturn:
+        """
+        Fetch products with semaphore-controlled concurrency.
+
+        Args:
+            session: The aiohttp ClientSession to use for requests
+            payload: The SOAP XML payload for the request
+            installation_service: Whether installation service is requested
+            connection_type: The connection type
+            semaphore: Semaphore to limit concurrent requests
+
+        Returns:
+            WebWunderFetchReturn with response data
+        """
+        async with semaphore:
+            self._logger.debug(
+                f"Semaphore acquired for connection_type={connection_type}, "
+                f"installation_service={installation_service}"
+            )
+            try:
+                return await self._fetch_products(
+                    session=session,
+                    payload=payload,
+                    installation_service=installation_service,
+                    connection_type=connection_type,
+                )
+            finally:
+                self._logger.debug(
+                    f"Semaphore released for connection_type={connection_type}, "
+                    f"installation_service={installation_service}"
+                )

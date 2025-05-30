@@ -8,69 +8,77 @@ class BaseModel(BaseModel):
     """
     Base model for all schemas.
     """
+
     model_config = ConfigDict(
         validate_by_name=True,
         json_encoders={
             str: lambda v: v if v else None,  # Handle empty strings
         },
-        from_attributes=True
+        from_attributes=True,
     )
-    
+
+
 class ProviderEnum(str, Enum):
     WEBWUNDER = "WebWunder"
     BYTEME = "ByteMe"
     PINGPERFECT = "Ping Perfect"
     VERBYNDICH = "VerbynDich"
     SERVUSSPEED = "Servus Speed"
-    
+
+
 class ConnectionTypeEnum(str, Enum):
     DSL = "DSL"
     CABLE = "Cable"
     FIBER = "Fiber"
     MOBILE = "Mobile"
 
-class NormalizedOffer(BaseModel):
-    # Core Identification
-    provider: ProviderEnum
-    offer_id: str # self generate if not available
-    name: str
-    
-    # Technical Details
-    speed: int
-    connection_type: ConnectionTypeEnum
-    
-    # Pricing Information (all in cents)
+class PriceDetails(BaseModel):
     monthly_cost: int
     monthly_cost_with_discount: int | None = None
     monthly_savings: int | None = None
     monthly_cost_after_promotion: int | None = None
     total_savings: int | None = None
     setup_fee: int | None = None
-    installation_service: bool = False
-    
+    discount_percentage: int | None = None  # Percentage discount
+
+class NormalizedOffer(BaseModel):
+    # Core Identification
+    provider: ProviderEnum
+    offer_id: str  # self generate if not available
+    name: str
+
+    # Technical Details
+    speed: int
+    connection_type: ConnectionTypeEnum
+
+    # Pricing Information (all in cents)
+    price_details: PriceDetails
+
     # Contract Terms
     contract_duration: int  # in months
     
+    installation_service: bool | None
+
     # Age & Eligibility Restrictions
     max_age: int | None = None
-    
+
     # Additional Services & Features
     tv_service: str | None = None
-    discount_percentage: float | None = None  # Percentage discount
     promotion_length: int | None = None  # Length of promotion in months
-    
+    data_limit: int | None = None  # Data limit in GB, if applicable
+
     # Metadata
     fetched_at: str  # ISO timestamp
-    
-    @field_validator('provider')
+
+    @field_validator("provider")
     @classmethod
     def validate_provider(cls, v):
         if isinstance(v, str):
             # Convert string to enum if needed
             return ProviderEnum(v)
         return v
-    
-    @field_validator('connection_type')
+
+    @field_validator("connection_type")
     @classmethod
     def validate_connection_type(cls, v):
         if isinstance(v, str):
@@ -81,7 +89,6 @@ class NormalizedOffer(BaseModel):
     def provider_name(self) -> str:
         """Get the string value of the provider enum"""
         return self.provider.value
-    
 
 
 class Address(BaseModel):
@@ -102,14 +109,16 @@ class NetworkRequestData(BaseModel):
     address: Address
 
 
-class ApiRequestHeaders(BaseModel):
+class WebWunderRequestHeaders(BaseModel):
     content_type: str = Field("text/xml; charset=utf-8", alias="Content-Type")
     x_api_key: str = Field(..., alias="X-Api-Key")
+
 
 class WebWunderFetchReturn(BaseModel):
     installation_service: bool
     connection_type: str
     response_text: str
+
 
 class WebWunderProduct(BaseModel):
     product_id: str = Field(..., alias="productId")
@@ -119,15 +128,13 @@ class WebWunderProduct(BaseModel):
     monthly_cost_in_cent_from_25th_month: int = Field(
         ..., alias="monthlyCostInCentFrom25thMonth"
     )
-    contract_duration_in_months: int = Field(
-        ..., alias="contractDurationInMonths"
-    )
+    contract_duration_in_months: int = Field(..., alias="contractDurationInMonths")
     connection_type: str = Field(..., alias="connectionType")
-    
+
     # Percentage voucher fields
     voucher_percentage: int | None = Field(None, alias="voucherPercentage")
     max_discount_in_cent: int | None = Field(None, alias="maxDiscountInCent")
-    
+
     # Absolute voucher fields
     discount_in_cent: int | None = Field(None, alias="discountInCent")
     min_order_value_in_cent: int | None = Field(None, alias="minOrderValueInCent")
@@ -143,7 +150,7 @@ class ByteMeQueryParams(BaseModel):
 class ByteMeProduct(BaseModel):
     product_id: str = Field(..., alias="productId")
     provider_name: str = Field(..., alias="providerName")
-    speed: str = Field(..., alias="speed")
+    speed: int = Field(..., alias="speed")
     monthly_cost_in_cent: str = Field(..., alias="monthlyCostInCent")
     after_two_years_monthly_cost: str = Field(..., alias="afterTwoYearsMonthlyCost")
     duration_in_months: str = Field(..., alias="durationInMonths")
@@ -169,6 +176,12 @@ class ByteMeProduct(BaseModel):
     def parse_int(cls, value: str) -> int:
         return int(value) if value else 0
 
+    # Convert boolean string fields to bool
+    @field_validator("installation_service")
+    @classmethod
+    def parse_bool(cls, value: str) -> bool:
+        return value.lower() == "true"
+
 
 class PingPerfectHeaders(BaseModel):
     x_client_id: str = Field(..., alias="X-Client-Id")
@@ -185,7 +198,6 @@ class PingPerfectRequestData(BaseModel):
     wants_fiber: bool = Field(False, alias="wantsFiber")
 
 
-
 class PingPerfectProductInfo(BaseModel):
     speed: int = Field(..., examples=[30])
     contract_duration_in_months: int = Field(..., alias="contractDurationInMonths")
@@ -197,18 +209,15 @@ class PingPerfectProductInfo(BaseModel):
     max_age: str | None = Field(None, alias="maxAge")
 
 
-
 class PingPerfectPricingDetails(BaseModel):
     monthly_cost_in_cent: int = Field(..., alias="monthlyCostInCent")
     installation_service: str = Field(..., examples=["no"], alias="installationService")
-
 
 
 class PingPerfectResponseData(BaseModel):
     provider_name: str = Field(..., alias="providerName")
     product_info: PingPerfectProductInfo = Field(..., alias="productInfo")
     pricing_details: PingPerfectPricingDetails = Field(..., alias="pricingDetails")
-
 
 
 class VerbynDichRequestData(BaseModel):
@@ -232,8 +241,6 @@ class VerbynDichRequestData(BaseModel):
 class VerbynDichQueryParams(BaseModel):
     api_key: str = Field(..., alias="apiKey")
     page: int = Field(0)
-        
-
 
 
 class ServusSpeedRequestAddress(BaseModel):
