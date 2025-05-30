@@ -6,10 +6,10 @@ from pydantic import BaseModel
 
 
 class DiscountResult(BaseModel):
-    monthly_discount: float | None = None
-    monthly_cost_with_discount: float | None = None
-    total_savings: float | None = None
-    discount_percentage: float | None = None
+    monthly_discount: int | None = None
+    monthly_cost_with_discount: int | None = None
+    total_savings: int | None = None
+    discount_percentage: int | None = None
 
 
 class DiscountCalculator:
@@ -76,8 +76,8 @@ class DiscountCalculator:
         absolute_discount = min(complete_discount, max_discount)
         
         # Calculate final values
-        monthly_discount = absolute_discount / self.promotion_length
-        monthly_cost_with_discount = base_monthly_cost - monthly_discount
+        monthly_discount = absolute_discount // self.promotion_length
+        monthly_cost_with_discount = round(base_monthly_cost - monthly_discount)
         discount_percentage = floor((monthly_discount / base_monthly_cost) * 100)
         
         return DiscountResult(

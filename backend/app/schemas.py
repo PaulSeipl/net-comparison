@@ -220,7 +220,6 @@ class PingPerfectProduct(BaseModel):
     pricing_details: PingPerfectPricingDetails = Field(..., alias="pricingDetails")
     
 
-
 class VerbynDichRequestData(BaseModel):
     body: str = Field(
         ..., description="Serialized address string: 'street;houseNumber;zip;city'"
@@ -242,6 +241,22 @@ class VerbynDichRequestData(BaseModel):
 class VerbynDichQueryParams(BaseModel):
     api_key: str = Field(..., alias="apiKey")
     page: int = Field(0)
+
+
+class VerbynDichProduct(BaseModel):
+    monthly_cost_in_cent: int
+    connection_type: str
+    speed: int
+    contract_duration: int
+    price_after_promotion: int
+    tv: str | None = None
+    data_limit: int | None = None
+    age_restriction: int | None = None
+    discount_percentage: int | None = None
+    max_discount: int | None = None
+    absolute_discount_in_cent: int | None = None
+    min_order_value_in_cent: int | None = None
+    
 
 
 class ServusSpeedRequestAddress(BaseModel):
