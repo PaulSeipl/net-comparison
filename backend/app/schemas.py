@@ -42,7 +42,9 @@ class NormalizedOffer(BaseModel):
     # Pricing Information (all in cents)
     monthly_cost: int
     monthly_cost_with_discount: int | None = None
+    monthly_savings: int | None = None
     monthly_cost_after_promotion: int | None = None
+    total_savings: int | None = None
     setup_fee: int | None = None
     installation_service: bool = False
     
@@ -54,7 +56,6 @@ class NormalizedOffer(BaseModel):
     
     # Additional Services & Features
     tv_service: str | None = None
-    max_discount_amount: int | None = None  # Discount in cents
     discount_percentage: float | None = None  # Percentage discount
     promotion_length: int | None = None  # Length of promotion in months
     
@@ -73,7 +74,6 @@ class NormalizedOffer(BaseModel):
     @classmethod
     def validate_connection_type(cls, v):
         if isinstance(v, str):
-            # Convert string to enum if needed
             return ConnectionTypeEnum(v)
         return v
 
@@ -99,10 +99,6 @@ class Address(BaseModel):
 
 
 class NetworkRequestData(BaseModel):
-    installation: bool = Field(..., examples=[True])
-    connection_type: Literal["DSL", "CABLE", "FIBER", "MOBILE"] = Field(
-        ..., examples=["DSL"]
-    )
     address: Address
 
 
@@ -110,6 +106,10 @@ class ApiRequestHeaders(BaseModel):
     content_type: str = Field("text/xml; charset=utf-8", alias="Content-Type")
     x_api_key: str = Field(..., alias="X-Api-Key")
 
+class WebWunderFetchReturn(BaseModel):
+    installation_service: bool
+    connection_type: str
+    response_text: str
 
 class WebWunderProduct(BaseModel):
     product_id: str = Field(..., alias="productId")
@@ -131,21 +131,6 @@ class WebWunderProduct(BaseModel):
     # Absolute voucher fields
     discount_in_cent: int | None = Field(None, alias="discountInCent")
     min_order_value_in_cent: int | None = Field(None, alias="minOrderValueInCent")
-
-    # Convert string fields to int
-    @field_validator(
-        "speed",
-        "monthly_cost_in_cent",
-        "monthly_cost_in_cent_from_25th_month",
-        "contract_duration_in_months",
-        "voucher_percentage",
-        "max_discount_in_cent",
-        "discount_in_cent",
-        "min_order_value_in_cent",
-    )
-    @classmethod
-    def parse_int(cls, value: str | None) -> int:
-        return int(value) if value and value.strip() else 0
 
 
 class ByteMeQueryParams(BaseModel):
