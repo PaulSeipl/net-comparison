@@ -202,7 +202,7 @@ class PingPerfectProductInfo(BaseModel):
     speed: int = Field(..., examples=[30])
     contract_duration_in_months: int = Field(..., alias="contractDurationInMonths")
     connection_type: Literal["DSL", "CABLE", "FIBER", "MOBILE"] = Field(
-        ..., examples=["DSL"]
+        ..., examples=["DSL"], alias="connectionType"
     )
     tv: str = Field(..., examples=["PING TV"])
     limit_from: str | None = Field(None, alias="limitFrom")
@@ -214,10 +214,11 @@ class PingPerfectPricingDetails(BaseModel):
     installation_service: str = Field(..., examples=["no"], alias="installationService")
 
 
-class PingPerfectResponseData(BaseModel):
+class PingPerfectProduct(BaseModel):
     provider_name: str = Field(..., alias="providerName")
     product_info: PingPerfectProductInfo = Field(..., alias="productInfo")
     pricing_details: PingPerfectPricingDetails = Field(..., alias="pricingDetails")
+    
 
 
 class VerbynDichRequestData(BaseModel):

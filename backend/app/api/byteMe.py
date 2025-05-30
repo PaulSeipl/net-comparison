@@ -2,7 +2,7 @@ from datetime import datetime
 import logging
 import csv
 import aiohttp
-from typing import Dict, List, Any
+from typing import Any
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -48,7 +48,7 @@ class ByteMe(BaseProvider):
 
     async def get_offers(
         self, request_data: NetworkRequestData
-    ) -> List[Dict[str, Any]]:
+    ) -> list[NormalizedOffer]:
         """
         Fetch offers from the provider for the given address.
         Returns a list of normalized offer data.
@@ -104,7 +104,7 @@ class ByteMe(BaseProvider):
         self,
         session: aiohttp.ClientSession,
         query_params: ByteMeQueryParams,
-    ) -> List[ByteMeProduct]:
+    ) -> list[ByteMeProduct]:
         """
         Fetch products from the ByteMe provider.
         Automatically retries on certain errors with exponential backoff.
@@ -170,7 +170,7 @@ class ByteMe(BaseProvider):
             )
             return []
 
-    def _parse_csv_to_products(self, csv_data: str) -> List[ByteMeProduct]:
+    def _parse_csv_to_products(self, csv_data: str) -> list[ByteMeProduct]:
         """
         Parse the CSV response and convert it into a list of ByteMeProduct objects.
 
@@ -202,8 +202,8 @@ class ByteMe(BaseProvider):
             raise ValueError(f"Error parsing CSV data: {e}")
 
     def _remove_duplicates_from_dict_list(
-        self, dict_list: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
+        self, dict_list: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """
         Remove duplicates from a list of dictionaries.
 
