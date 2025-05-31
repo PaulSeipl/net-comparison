@@ -409,16 +409,6 @@ class VerbynDich(BaseProvider):
         
         return VerbynDichProduct(**parsed)
 
+
     def _generate_offer_id(self, product_name: str) -> str:
-        """
-        Generate a unique offer ID from the product name.
-
-        Args:
-            product_name: The product name from VerbynDich
-
-        Returns:
-            A unique offer ID
-        """
-        # Remove spaces and special characters, convert to lowercase
-        clean_name = re.sub(r"[^a-zA-Z0-9]", "", product_name.lower())
-        return f"verbyndich_{clean_name}"
+        return f"{self.name}_{product_name.replace(' ', '_').lower()}"
