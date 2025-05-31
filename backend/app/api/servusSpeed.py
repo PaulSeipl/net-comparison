@@ -367,7 +367,7 @@ class ServusSpeed(BaseProvider):
             tv_service=raw_offer.product_info.tv,
             promotion_length=raw_offer.product_info.contract_duration_in_months,
             data_limit=raw_offer.product_info.limit_from,
-            fetched_at=datetime.now().isoformat(),
+            fetched_at=datetime.now().isoformat(timespec="seconds"),
         )
         
 
