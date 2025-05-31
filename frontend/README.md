@@ -1,73 +1,88 @@
-# Welcome to your Lovable project
+# Frontend - Internet Provider Comparison UI
 
-## Project info
+**This is mostly implemented with the help of lovable.**
 
-**URL**: https://lovable.dev/projects/0f02bf47-9621-46d7-893c-077fbf889293
+This directory contains the React + TypeScript frontend for the Internet Provider Comparison app. Users can enter their address, view and filter offers from multiple providers, and compare up to 4 offers side-by-side.
 
-## How can I edit this code?
+## Challenge
 
-There are several ways of editing your application.
+Create a responsive web UI that gracefully handles unreliable provider APIs by:
+- Displaying real-time loading states per provider as results arrive
+- Continuing to show available offers even when some providers fail
+- Providing rich filtering, sorting, and comparison capabilities
+- Maintaining smooth UX despite backend API inconsistencies
 
-**Use Lovable**
+## Solution Approach
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/0f02bf47-9621-46d7-893c-077fbf889293) and start prompting.
+**Frontend-Implemented Progressive Loading**: Since the backend's main `/providers/offers` endpoint is blocking, the frontend implements its own parallel provider fetching to achieve progressive loading.
 
-Changes made via Lovable will be committed automatically to this repo.
 
-**Use your preferred IDE**
+1. **Frontend Parallel Fetching**: `apiService.getAllOffers()` calls individual provider endpoints (`/providers/offers/{provider}`) in parallel using Promise.allSettled, enabling true progressive loading.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+2. **Real-time Provider Status**: UI shows individual loading spinners per provider, updating to checkmarks as each completes successfully.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+3. **Graceful Frontend Degradation**: Failed providers don't prevent display of successful results due to Promise.allSettled pattern.
 
-Follow these steps:
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Tech Stack
+- **Vite** + React + TypeScript
+- **Tailwind CSS** (with PostCSS)
+- **React Query** for data fetching and caching
+- **React Router** for routing
+- Custom UI components under `src/components/`
+- API service abstraction in `src/services/apiService.tsx`
+- URL state and validation in `src/utils/urlState.ts`
+- Custom hooks for mobile detection (`use-mobile.tsx`) and toasts (`use-toast.ts`)
+- Offer filtering/sorting utilities in `src/utils/offerUtils.tsx`
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## Getting Started
 
-# Step 3: Install the necessary dependencies.
-npm i
+1. **Install Dependencies**:
+   ```pwsh
+   cd frontend
+   npm install
+   ```
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+2. **Configure Environment**:
+   - Edit `src/config/production.ts`, set `API_BASE_URL` and `API_KEY`.
 
-**Edit a file directly in GitHub**
+3. **Run Development Server**:
+   ```pwsh
+   npm run dev
+   ```
+   Open `http://localhost:5173` in your browser.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+4. **Build for Production**:
+   ```pwsh
+   npm run build
+   ```
 
-**Use GitHub Codespaces**
+## Directory Overview
+- `src/pages/Index.tsx`: main search & results view
+- `src/components/`: reusable UI pieces (SearchForm, ResultsDisplay, ComparisonPanel, etc.)
+- `src/services/apiService.tsx`: calls backend API per provider
+- `src/utils/`: filtering, URL state, validation helpers
+- `src/hooks/`: custom React hooks
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Development Guide
 
-## What technologies are used for this project?
+**Key Components**:
+- `SearchForm`: Address input with validation
+- `ResultsDisplay`: Manages provider loading states and progressive results
+- `FilterSidebar`/`MobileFilterSidebar`: Comprehensive filtering UI
+- `EnhancedOfferCard`/`MobileOfferCard`: Responsive offer display
+- `ComparisonPanel`: Side-by-side offer comparison
 
-This project is built with:
+**Data Flow**:
+1. User enters address → `SearchForm`
+2. API calls made per provider → `apiService.getAllOffers()`
+3. Results displayed progressively → `ResultsDisplay`
+4. Client-side filtering/sorting → `offerUtils.tsx`
+5. Comparison functionality → `ComparisonPanel`
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+**Adding Features**:
+- New filters: Update `FilterState` in `types/api.ts` and `filterOffers()` in `utils/offerUtils.tsx`
+- UI components: Follow existing patterns in `components/`
+- API changes: Update `apiService.tsx` and type definitions
 
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/0f02bf47-9621-46d7-893c-077fbf889293) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+**Mobile Responsiveness**: Uses `useIsMobile()` hook and separate mobile components for optimal UX.
