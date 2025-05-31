@@ -1,5 +1,75 @@
 # Provider
 
+## Web Wunder
+
+Sometimes not reachable
+
+### Not Reachable:
+
+```XML
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+    <SOAP-ENV:Header/>
+    <SOAP-ENV:Body>
+        <SOAP-ENV:Fault>
+            <faultcode>SOAP-ENV:Server</faultcode>
+            <faultstring xml:lang="en">Temporär nicht verfügbar</faultstring>
+        </SOAP-ENV:Fault>
+    </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>
+```
+
+### Offers:
+
+Base Reponse
+
+```XML
+<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/">
+    <SOAP-ENV:Header/>
+    <SOAP-ENV:Body>
+        <Output xmlns:ns2="http://webwunder.gendev7.check24.fun/offerservice">
+            <ns2:products>
+                ...
+            </ns2:products>
+            ...
+```
+
+Normal Offer
+````XML
+<ns2:products>
+    <ns2:productId>401</ns2:productId>
+    <ns2:providerName>WebWunder Starter 20</ns2:providerName>
+    <ns2:productInfo>
+        <ns2:speed>20</ns2:speed>
+        <ns2:monthlyCostInCent>2298</ns2:monthlyCostInCent>
+        <ns2:monthlyCostInCentFrom25thMonth>2198</ns2:monthlyCostInCentFrom25thMonth>
+        <ns2:contractDurationInMonths>12</ns2:contractDurationInMonths>
+        <ns2:connectionType>DSL</ns2:connectionType>
+    </ns2:productInfo>
+</ns2:products>
+```
+
+Offer with percantage Voucher
+```XML
+<ns2:products>
+    <ns2:productId>401</ns2:productId>
+    <ns2:providerName>WebWunder Starter 20</ns2:providerName>
+    <ns2:productInfo>
+        <ns2:speed>20</ns2:speed>
+        <ns2:monthlyCostInCent>2298</ns2:monthlyCostInCent>
+        <ns2:monthlyCostInCentFrom25thMonth>2198</ns2:monthlyCostInCentFrom25thMonth>
+        <ns2:voucher xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="ns2:percentageVoucher">
+            <ns2:percentage>11</ns2:percentage>
+            <ns2:maxDiscountInCent>10793</ns2:maxDiscountInCent>
+        </ns2:voucher>
+        <ns2:contractDurationInMonths>12</ns2:contractDurationInMonths>
+        <ns2:connectionType>DSL</ns2:connectionType>
+    </ns2:productInfo>
+</ns2:products>
+```
+
+Offer with absolute Voucher
+
+
 ## VerbynDich
 
 Generally very slow

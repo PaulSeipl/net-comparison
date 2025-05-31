@@ -1,13 +1,18 @@
+from datetime import datetime
 from pydantic import PrivateAttr
 from app.schemas import (
+    NormalizedOffer,
+    PingPerfectProduct,
     PingPerfectRequestData,
     PingPerfectHeaders,
+    PriceDetails,
     ProviderEnum,
     NetworkRequestData,
     BaseProvider,
 )
+from app.utils.connection_mapper import ConnectionTypeMapper
 from app.config import get_settings
-from typing import Dict, List, Any
+from typing import Any
 import aiohttp
 import logging
 import time
@@ -25,18 +30,15 @@ class PingPerfect(BaseProvider):
     name: str = ProviderEnum.PINGPERFECT.value
     _logger: logging.Logger = PrivateAttr()
     REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
+    BASE_URL: str = 'https://pingperfect.gendev7.check24.fun/internet/angebote/data'
     
     def __init__(self, logger: logging.Logger, **data):
         super().__init__(**data)
         self._logger = logger
-
-    @property
-    def provider_name(self) -> str:
-        return self.name
         
     async def get_offers(
         self, request_data: NetworkRequestData
-    ) -> List[Dict[str, Any]]:
+    ) -> list[NormalizedOffer]:
         """
         Fetch offers from the provider for the given address.
         Returns a list of normalized offer data.
@@ -84,27 +86,22 @@ class PingPerfect(BaseProvider):
         
         # Process and normalize results
         processed_results = []
-        # For PingPerfect, the response is already a list of products
-        if isinstance(response_data, list):
-            for product in response_data:
-                processed_results.append(self.normalize_offer(product))
-        else:
-            # Handle case where response is a single product or has different structure
-            processed_results.append(self.normalize_offer(response_data))
+        for product in response_data:
+            processed_results.append(self.normalize_offer(product))
             
-        self._logger.info(f"Successfully fetched {len(processed_results)} offers from {self.provider_name}")
+        self._logger.info(f"Successfully fetched {len(processed_results)} offers")
         return processed_results    
     
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
+        stop=stop_after_attempt(10),
+        wait=wait_exponential(multiplier=1, min=2, max=60),
         retry=retry_if_exception_type(aiohttp.ClientResponseError)
     )
     async def _fetch_products(
         self,
         session: aiohttp.ClientSession,
         payload: str,
-    ) -> Dict[str, Any]:
+    ) -> list[PingPerfectProduct]:
         """
         Fetch products from the PingPerfect provider.
         Automatically retries on certain errors with exponential backoff.
@@ -121,7 +118,7 @@ class PingPerfect(BaseProvider):
         try:
             self._logger.info(f"Fetching available products...")
             async with session.post(
-                settings.PINGPERFECT_URL,
+                self.BASE_URL,
                 data=payload,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             ) as response:
@@ -133,8 +130,8 @@ class PingPerfect(BaseProvider):
                 
                 response_data = await response.json()
                 self._logger.debug(f"Raw response data: {response_data}")
-                
-                return response_data
+
+                return [PingPerfectProduct(**data) for data in response_data]
 
         except aiohttp.ClientResponseError as e:
             # Attempt to get response text for better error logging
@@ -166,7 +163,7 @@ class PingPerfect(BaseProvider):
             )
             return {}
             
-    def normalize_offer(self, product: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_offer(self, raw_offer: PingPerfectProduct) -> NormalizedOffer:
         """
         Normalize the provider-specific offer format into a common format.
         
@@ -176,16 +173,36 @@ class PingPerfect(BaseProvider):
         Returns:
             A normalized offer dictionary
         """
-        self._logger.debug(f"Normalizing raw offer: {product}")
-        if not product:
-            return {}
+        self._logger.debug(f"Normalizing raw offer: {raw_offer}")
+
+        price_details = PriceDetails(
+            monthly_cost=raw_offer.pricing_details.monthly_cost_in_cent,
+        )
+
+        normalized_offer = NormalizedOffer(
+            provider=self.name,
+            offer_id=self._generate_offer_id(raw_offer.provider_name),
+            name=raw_offer.provider_name,
+            speed=raw_offer.product_info.speed,
+            connection_type=ConnectionTypeMapper.map_connection_type(raw_offer.product_info.connection_type),
+            price_details=price_details,
+            contract_duration=raw_offer.product_info.contract_duration_in_months,
+            installation_service=raw_offer.pricing_details.installation_service,
+            tv_service=raw_offer.product_info.tv,
+            max_age=raw_offer.product_info.max_age,
+            data_limit=raw_offer.product_info.limit_from,
+            fetched_at=datetime.now().isoformat(timespec="seconds"),
+        )
         
-        return product
-        
+        return normalized_offer
+    
+    def _generate_offer_id(self, product_name: str) -> str:
+        return f"{self.name}_{product_name}"
+
     def _get_payload(self, request_data: NetworkRequestData) -> PingPerfectRequestData:
         """
         Create the payload for the API request.
-        
+
         Args:
             request_data: The network request data containing address information
             
@@ -197,7 +214,7 @@ class PingPerfect(BaseProvider):
             house_number=request_data.address.house_number,
             plz=request_data.address.zip,
             street=request_data.address.street,
-            wants_fiber=request_data.connection_type == "FIBER",
+            wants_fiber=False, # Always False to get all products
         )
 
         return payload
