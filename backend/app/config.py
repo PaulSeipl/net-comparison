@@ -2,18 +2,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
+    # API Authentication
+    API_KEY: str
+    
+    # Provider API configurations
     WEBWUNDER_API_KEY: str
-    WEBWUNDER_BASE_URL: str
     BYTEME_API_KEY: str
-    BYTEME_BASE_URL: str
-    PINGPERFECT_URL: str
     PINGPERFECT_CLIENT_ID: str
     PINGPERFECT_SIGNATURE_SECRET: str
-    VERBYNDICH_URL: str
     VERBYNDICH_API_KEY: str
-    SERVUSSPEED_BASE_URL: str
-    SERVUSSPEED_PRODUCTS_ENDPOINT: str
-    SERVUSSPEED_GET_PRODUCT_ENDPOINT: str
     SERVUSSPEED_USERNAME: str
     SERVUSSPEED_PASSWORD: str
 

@@ -7,6 +7,8 @@ from typing import List
 class WebWunderConfig:
     """Configuration constants for WebWunder provider."""
     
+    BASE_URL: str = 'https://webwunder.gendev7.check24.fun:443/endpunkte/soap/ws'
+    
     # API Configuration
     REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
     CONCURRENCY_LIMIT: int = 5  # Limit concurrent requests

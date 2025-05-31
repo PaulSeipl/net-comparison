@@ -45,10 +45,6 @@ class WebWunder(BaseProvider):
             promotion_length=WebWunderConfig.PROMOTION_LENGTH
         )
 
-    @property
-    def name(self) -> str:
-        return self.name
-
     async def get_offers(
         self, request_data: NetworkRequestData
     ) -> List[NormalizedOffer]:
@@ -253,8 +249,6 @@ class WebWunder(BaseProvider):
         Returns:
             WebWunderFetchReturn with response data
         """
-        settings = get_settings()
-
         try:
             self._logger.debug(
                 f"Fetching products for connection_type={connection_type}, "
@@ -262,7 +256,7 @@ class WebWunder(BaseProvider):
             )
 
             async with session.post(
-                settings.WEBWUNDER_BASE_URL,
+                WebWunderConfig.BASE_URL,
                 data=payload,
                 timeout=aiohttp.ClientTimeout(total=WebWunderConfig.REQUEST_TIMEOUT),
             ) as response:
@@ -385,7 +379,7 @@ class WebWunder(BaseProvider):
 
         return NormalizedOffer(
             provider=ProviderEnum.WEBWUNDER,
-            offer_id=raw_offer_dict["product_id"],
+            offer_id=f"{raw_offer_dict['product_id']}{'_installation' if installation_service else ''}",
             name=raw_offer_dict["provider_name"],
             speed=raw_offer_dict["speed"],
             connection_type=connection_type,

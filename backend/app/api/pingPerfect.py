@@ -30,6 +30,7 @@ class PingPerfect(BaseProvider):
     name: str = ProviderEnum.PINGPERFECT.value
     _logger: logging.Logger = PrivateAttr()
     REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
+    BASE_URL: str = 'https://pingperfect.gendev7.check24.fun/internet/angebote/data'
     
     def __init__(self, logger: logging.Logger, **data):
         super().__init__(**data)
@@ -117,7 +118,7 @@ class PingPerfect(BaseProvider):
         try:
             self._logger.info(f"Fetching available products...")
             async with session.post(
-                settings.PINGPERFECT_URL,
+                self.BASE_URL,
                 data=payload,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             ) as response:

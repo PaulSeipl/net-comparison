@@ -38,6 +38,7 @@ class ByteMe(BaseProvider):
     )  # Placeholder for discount calculator
     REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
     PROMOTION_LENGTH: int = 24  # Length of promotion in months
+    BASE_URL: str = 'https://byteme.gendev7.check24.fun/app/api/products/data'
 
     def __init__(self, logger: logging.Logger, **data):
         super().__init__(**data)
@@ -121,7 +122,7 @@ class ByteMe(BaseProvider):
         try:
             self._logger.info(f"Fetching available products...")
             async with session.get(
-                settings.BYTEME_BASE_URL,
+                self.BASE_URL,
                 params=query_params.model_dump(by_alias=True),
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             ) as response:

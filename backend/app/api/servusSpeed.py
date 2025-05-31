@@ -36,6 +36,9 @@ class ServusSpeed(BaseProvider):
 
     name: str = ProviderEnum.SERVUSSPEED.value
     _logger: logging.Logger = PrivateAttr()
+    BASE_URL: str = 'https://servus-speed.gendev7.check24.fun'
+    PRODUCTS_ENDPOINT: str = 'api/external/available-products'
+    GET_PRODUCT_ENDPOINT: str = 'api/external/product-details'
     CONCURRENCY_LIMIT: int = (
         10  # Maximum number of concurrent requests (provider limit)
     )
@@ -65,12 +68,11 @@ class ServusSpeed(BaseProvider):
         self._logger.debug(f"Request data: {request_data}")
 
         # Prepare session and request parameters
-        settings = get_settings()
         payload = self._get_payload(request_data)
         basic_auth = self._get_basic_auth()
 
         async with aiohttp.ClientSession(
-            base_url=settings.SERVUSSPEED_BASE_URL,
+            base_url=self.BASE_URL,
             headers=ServusSpeedHeaders().model_dump(by_alias=True),
             auth=basic_auth,
         ) as session:
@@ -169,14 +171,13 @@ class ServusSpeed(BaseProvider):
         Returns:
             A ServusSpeedProduct object or an empty dict on failure
         """
-        settings = get_settings()
         await asyncio.sleep(self.REQUEST_DELAY)  # Small delay between requests
         payload_dict = payload.model_dump(by_alias=True)
         raw_response_json = {}
 
         try:
             async with session.post(
-                f"{settings.SERVUSSPEED_GET_PRODUCT_ENDPOINT}/{product_id}",
+                f"{self.GET_PRODUCT_ENDPOINT}/{product_id}",
                 json=payload_dict,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             ) as response:
@@ -256,12 +257,10 @@ class ServusSpeed(BaseProvider):
             A ServusSpeedAvailableProducts object containing product IDs
         """
         payload_dict = payload.model_dump(by_alias=True)
-        settings = get_settings()
 
         try:
-            self._logger.info(f"Fetching available products...")
             async with session.post(
-                f"{settings.SERVUSSPEED_PRODUCTS_ENDPOINT}",
+                f"{self.PRODUCTS_ENDPOINT}",
                 json=payload_dict,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),
             ) as response:
@@ -339,9 +338,9 @@ class ServusSpeed(BaseProvider):
             raw_offer.product_info.contract_duration_in_months
         ).calculate_discount(
             base_monthly_cost=raw_offer.pricing_details.monthly_cost_in_cent,
-            discount_in_cent=raw_offer.discount
+            discount_in_cent=raw_offer.discount,
         )
-        
+
         price_details = PriceDetails(
             monthly_cost=raw_offer.pricing_details.monthly_cost_in_cent,
             monthly_cost_with_discount=discount_result.monthly_cost_with_discount,
@@ -349,7 +348,7 @@ class ServusSpeed(BaseProvider):
             total_savings=discount_result.total_savings,
             discount_percentage=discount_result.discount_percentage,
         )
-        
+
         connection_type = ConnectionTypeMapper.map_connection_type(
             raw_offer.product_info.connection_type
         )
@@ -369,7 +368,6 @@ class ServusSpeed(BaseProvider):
             data_limit=raw_offer.product_info.limit_from,
             fetched_at=datetime.now().isoformat(timespec="seconds"),
         )
-        
 
     def _generate_offer_id(self, product_name: str) -> str:
         return f"{self.name}_{product_name.replace(' ', '_').lower()}"

@@ -1,8 +1,5 @@
-from typing import Any
-import logfire
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 from app.schemas import (
     NormalizedOffer,
     ProviderEnum,
@@ -10,17 +7,20 @@ from app.schemas import (
     BaseProvider
 )
 from app.dependencies.providers import get_all_providers, make_provider_getter
-import asyncio
+from app.auth import verify_api_key
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(debug=True)
-logger_uvicorn = logging.getLogger("uvicorn.error")
-logger_uvicorn.propagate = False
+app = FastAPI(debug=False)
+#logger_uvicorn = logging.getLogger("uvicorn.error")
+#logger_uvicorn.propagate = False
 
-api_v1_router = APIRouter(prefix="/api/v1")
+api_v1_router = APIRouter(
+    prefix="/api/v1",
+    dependencies=[Depends(verify_api_key)]  # Apply authentication to ALL routes in this router
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -29,18 +29,16 @@ app.add_middleware(
         "http://localhost:8080",
         "http://127.0.0.1:8080",
         "https://localhost:8080",  # In case you use HTTPS later
-        "https://127.0.0.1:8080"
+        "https://127.0.0.1:8080",
+        "https://lovable.dev/projects/0f02bf47-9621-46d7-893c-077fbf889293",
+        "https://0f02bf47-9621-46d7-893c-077fbf889293.lovableproject.com"
     ],
     # allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],  # Allow X-API-Key header
 )
 
-# logfire.configure()
-# logfire.instrument_fastapi(app, capture_headers=True)
-
-
-@api_v1_router.get("/", response_model=dict[str, str])
+@app.get("/", response_model=dict[str, str])
 async def root():
     return {"message": "Internet Provider Comparison API"}
 
@@ -51,6 +49,7 @@ async def get_providers(
 ):
     """
     Get a list of all available providers.
+    Authentication is handled at router level.
     """
     return [provider.name for provider in providers]
 
@@ -62,11 +61,18 @@ async def get_offers(
     request_data: NetworkRequestData,
     providers: list[BaseProvider] = Depends(get_all_providers),
 ):
+    """
+    Get offers from all available providers.
+    Authentication is handled at router level.
+    """
     offers = []
 
     for provider in providers:
         offer = await provider.get_offers(request_data=request_data)
         offers.append((offer))
+        
+    # flatten list of offers
+    offers = [offer for sublist in offers for offer in sublist]
 
     return offers
 
@@ -76,6 +82,10 @@ async def get_offers_byte_me(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.BYTEME)),
 ):
+    """
+    Get offers from ByteMe provider.
+    Authentication is handled at router level.
+    """
     offers = await provider.get_offers(request_data=request_data)
 
     print(offers)
@@ -87,6 +97,10 @@ async def get_offers_web_wunder(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.WEBWUNDER)),
 ):
+    """
+    Get offers from WebWunder provider.
+    Authentication is handled at router level.
+    """
     offers = await provider.get_offers(request_data=request_data)
 
     print(offers)
@@ -98,6 +112,10 @@ async def get_offers_ping_perfect(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.PINGPERFECT)),
 ):
+    """
+    Get offers from Ping Perfect provider.
+    Authentication is handled at router level.
+    """
     offers = await provider.get_offers(request_data=request_data)
 
     print(offers)
@@ -109,6 +127,10 @@ async def get_offers_verbyn_dich(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.VERBYNDICH)),
 ):
+    """
+    Get offers from VerbynDich provider.
+    Authentication is handled at router level.
+    """
     offers = await provider.get_offers(request_data=request_data)
 
     print(offers)
@@ -120,12 +142,13 @@ async def get_offers_servus_speed(
     request_data: NetworkRequestData,
     provider: BaseProvider = Depends(make_provider_getter(ProviderEnum.SERVUSSPEED)),
 ):
+    """
+    Get offers from Servus Speed provider.
+    Authentication is handled at router level.
+    """
     offers = await provider.get_offers(request_data=request_data)
 
     print(offers)
     return offers
 
 app.include_router(api_v1_router, tags=["API v1"])
-
-# if __name__ == "__main__":
-#    uvicorn.run(app, host="0.0.0.0", port=8000, env_file='.env')

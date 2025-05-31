@@ -38,6 +38,7 @@ class VerbynDich(BaseProvider):
     _discount_calculator: DiscountCalculator = (
         PrivateAttr()
     )  # Placeholder for discount calculator
+    BASE_URL: str = 'https://verbyndich.gendev7.check24.fun/check24/data'
     MAX_PAGE: int = 17
     REQUEST_TIMEOUT: int = 10  # Request timeout in seconds
     CONCURRENCY_LIMIT: int = (
@@ -168,7 +169,7 @@ class VerbynDich(BaseProvider):
         try:
             self._logger.info(f"Requesting page {page}...")
             async with session.post(
-                settings.VERBYNDICH_URL,
+                self.BASE_URL,
                 data=payload.body,
                 params=query_params,
                 timeout=aiohttp.ClientTimeout(total=self.REQUEST_TIMEOUT),

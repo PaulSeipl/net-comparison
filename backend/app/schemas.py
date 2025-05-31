@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Any, Dict, List, Literal
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 from abc import ABC, abstractmethod
 
 
@@ -32,6 +32,7 @@ class ConnectionTypeEnum(str, Enum):
     FIBER = "Fiber"
     MOBILE = "Mobile"
 
+
 class PriceDetails(BaseModel):
     monthly_cost: int
     monthly_cost_with_discount: int | None = None
@@ -40,6 +41,31 @@ class PriceDetails(BaseModel):
     total_savings: int | None = None
     setup_fee: int | None = None
     discount_percentage: int | None = None  # Percentage discount
+
+    @model_validator(mode="after")
+    def fill_missing_fields(self):
+        # check if no discount fields are set
+        if (
+            self.monthly_cost_with_discount is None
+            and self.monthly_savings is None
+            and self.total_savings is None
+            and self.discount_percentage is None
+        ):
+            if (
+                self.monthly_cost_after_promotion is not None
+                and self.monthly_cost < self.monthly_cost_after_promotion
+            ):
+                # If monthly cost after promotion is set, calculate savings
+                self.monthly_savings = self.monthly_cost_after_promotion - self.monthly_cost
+                self.monthly_cost_with_discount = self.monthly_cost
+                self.monthly_cost = self.monthly_cost_after_promotion
+                self.discount_percentage = (
+                    int(self.monthly_savings / self.monthly_cost * 100)
+                ) if self.monthly_cost > 0 else 0
+                
+        return self
+            
+
 
 class NormalizedOffer(BaseModel):
     # Core Identification
@@ -56,7 +82,7 @@ class NormalizedOffer(BaseModel):
 
     # Contract Terms
     contract_duration: int  # in months
-    
+
     installation_service: bool | None
 
     # Age & Eligibility Restrictions
@@ -84,11 +110,6 @@ class NormalizedOffer(BaseModel):
         if isinstance(v, str):
             return ConnectionTypeEnum(v)
         return v
-
-    @property
-    def provider_name(self) -> str:
-        """Get the string value of the provider enum"""
-        return self.provider.value
 
 
 class Address(BaseModel):
@@ -218,7 +239,7 @@ class PingPerfectProduct(BaseModel):
     provider_name: str = Field(..., alias="providerName")
     product_info: PingPerfectProductInfo = Field(..., alias="productInfo")
     pricing_details: PingPerfectPricingDetails = Field(..., alias="pricingDetails")
-    
+
 
 class VerbynDichRequestData(BaseModel):
     body: str = Field(
@@ -256,7 +277,6 @@ class VerbynDichProduct(BaseModel):
     max_discount: int | None = None
     absolute_discount_in_cent: int | None = None
     min_order_value_in_cent: int | None = None
-    
 
 
 class ServusSpeedRequestAddress(BaseModel):
@@ -307,15 +327,7 @@ class ServusSpeedProduct(BaseModel):
 
 class BaseProvider(BaseModel, ABC):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    # Make circuit_breaker a class attribute so it can be used as a decorator
-    # circuit_breaker = circuit_breaker
-    #    db: str
     name: str
-
-    @property
-    @abstractmethod
-    def name(self) -> str:
-        pass
 
     @abstractmethod
     async def get_offers(self, request_data: Any) -> List[Dict[str, Any]]:
@@ -326,51 +338,8 @@ class BaseProvider(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def normalize_offer(self, raw_offer: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_offer(self, raw_offer: Dict[str, Any]) -> NormalizedOffer:
         """
         Normalize the provider-specific offer format into a common format.
         """
         pass
-
-    async def get_cached_offers(self) -> List[Dict[str, Any]]:
-        """
-        Get offers from cache if available and valid.
-        """
-        return [{}]
-        return await self.cache.get_cached_offers(self.provider_name)
-
-    async def _cache_offer(
-        self, raw_offer: Dict[str, Any], normalized_offer: Dict[str, Any]
-    ):
-        """
-        Cache the offer in the database.
-        """
-        return
-        await self.cache.cache_offer(
-            self.provider_name,
-            normalized_offer["offer_id"],
-            raw_offer,
-            normalized_offer,
-        )
-
-    # def _create_normalized_offer(self, raw_offer: Dict[str, Any]) -> Dict[str, Any]:
-    #     """
-    #     Create a normalized offer with common fields.
-    #     """
-    #     normalized = self.normalize_offer(raw_offer)
-    #     return {
-    #         "provider": self.provider_name,
-    #         "offer_id": normalized.get("offer_id"),
-    #         "download_speed": normalized.get("download_speed"),
-    #         "upload_speed": normalized.get("upload_speed"),
-    #         "price": normalized.get("price"),
-    #         "contract_length": normalized.get("contract_length"),
-    #         "setup_fee": normalized.get("setup_fee"),
-    #         "cancellation_fee": normalized.get("cancellation_fee"),
-    #         "provider_specific": normalized.get("provider_specific", {}),
-    #         "fetched_at": datetime.utcnow().isoformat(),
-    #     }
-
-
-# class Provider(BaseModel):
-#     {ProviderEnum}: BaseProvider
