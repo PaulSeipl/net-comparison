@@ -29,8 +29,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         f"{settings.FRONTEND_URL}",
-        "https://net-comparison-frontend.vercel.app",
-        "https://net-comparison-frontend-paul-seipls-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -87,7 +85,6 @@ async def get_offers_byte_me(
     """
     offers = await provider.get_offers(request_data=request_data)
 
-    print(offers)
     return offers
 
 
@@ -102,7 +99,6 @@ async def get_offers_web_wunder(
     """
     offers = await provider.get_offers(request_data=request_data)
 
-    print(offers)
     return offers
 
 
@@ -117,7 +113,6 @@ async def get_offers_ping_perfect(
     """
     offers = await provider.get_offers(request_data=request_data)
 
-    print(offers)
     return offers
 
 
@@ -132,7 +127,6 @@ async def get_offers_verbyn_dich(
     """
     offers = await provider.get_offers(request_data=request_data)
 
-    print(offers)
     return offers
 
 
@@ -147,7 +141,6 @@ async def get_offers_servus_speed(
     """
     offers = await provider.get_offers(request_data=request_data)
 
-    print(offers)
     return offers
 
 app.include_router(api_v1_router, tags=["API v1"])

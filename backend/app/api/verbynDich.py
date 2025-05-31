@@ -271,7 +271,6 @@ class VerbynDich(BaseProvider):
 
             # Parse the description to extract offer details
             parsed_data = self._parse_description(description)
-            print(f"Parsed data: {parsed_data}")
             price_details = self._get_price_details(parsed_data)
 
             # Create normalized offer using NormalizedOffer schema
