@@ -29,8 +29,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         f"{settings.FRONTEND_URL}",
-        "https://net-comparison-frontend.vercel.app/",
-        "https://net-comparison-frontend-paul-seipls-projects.vercel.app/"
+        "https://net-comparison-frontend.vercel.app",
+        "https://net-comparison-frontend-paul-seipls-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
