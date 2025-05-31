@@ -4,6 +4,7 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # API Authentication
     API_KEY: str
+    FRONTEND_URL: str
     
     # Provider API configurations
     WEBWUNDER_API_KEY: str

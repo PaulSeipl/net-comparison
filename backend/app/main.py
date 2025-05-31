@@ -9,6 +9,7 @@ from app.schemas import (
 from app.dependencies.providers import get_all_providers, make_provider_getter
 from app.auth import verify_api_key
 import logging
+from app.config import get_settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,16 +23,12 @@ api_v1_router = APIRouter(
     dependencies=[Depends(verify_api_key)]  # Apply authentication to ALL routes in this router
 )
 
+settings = get_settings()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "https://localhost:8080",  # In case you use HTTPS later
-        "https://127.0.0.1:8080",
-        "https://lovable.dev/projects/0f02bf47-9621-46d7-893c-077fbf889293",
-        "https://0f02bf47-9621-46d7-893c-077fbf889293.lovableproject.com"
+        f"{settings.FRONTEND_URL}",
     ],
     # allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
